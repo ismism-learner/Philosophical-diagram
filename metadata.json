@@ -1,0 +1,5 @@
+{
+  "name": "PhiloFlow - 哲学流程图生成器",
+  "description": "一个利用 Gemini 模型将复杂的哲学文本转化为结构化流程图和示意图的工具。",
+  "requestFramePermissions": []
+}
