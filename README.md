@@ -1,20 +1,34 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# PhiloFlow - Local Development Setup
 
-# Run and deploy your AI Studio app
+This project is configured to run locally using [Vite](https://vitejs.dev/), which provides a fast development server with Hot Module Replacement (HMR).
 
-This contains everything you need to run your app locally.
+## Prerequisites
 
-View your app in AI Studio: https://ai.studio/apps/drive/1xP4hJQtv6q6YSszSQu6T3oiwzg03Hk3z
+- [Node.js](https://nodejs.org/) (Version 16 or higher)
 
-## Run Locally
+## Installation
 
-**Prerequisites:**  Node.js
+1. Open your terminal in this project folder.
+2. Install the required dependencies:
 
+   ```bash
+   npm install
+   ```
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+## Running the App
+
+Start the local development server:
+
+```bash
+npm run dev
+```
+
+Open your browser and navigate to `http://localhost:5173`.
+
+## Building for Production
+
+To create a production build (output to `dist` folder):
+
+```bash
+npm run build
+```

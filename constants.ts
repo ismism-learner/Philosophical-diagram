@@ -73,7 +73,15 @@ export const UI_TEXT = {
     cardSavingModern: "Saving...",
     cardRetry: "重试",
     cardRetryModern: "Retry",
-    
+    cardEdit: "修订",
+    cardEditModern: "Edit Prompt",
+    cardRegenerate: "重绘",
+    cardRegenerateModern: "Regenerate",
+    cardSaveEdit: "保存并重绘",
+    cardSaveEditModern: "Save & Run",
+    cardCancelEdit: "取消",
+    cardCancelEditModern: "Cancel",
+
     // Status
     statusWaiting: "等待中...",
     statusWaitingModern: "WAITING...",
@@ -97,7 +105,33 @@ export const UI_TEXT = {
     // Alert
     alertQuota: "API 配额保护机制生效。请勿刷新，正在后台尝试重连...",
     alertQuotaModern: "API Quota Limit Reached. Retrying in background...",
-    alertHDConfirm: "Nano Banana Pro (高清绘图) 需要连接 API Key。是否立即连接？"
+    alertHDConfirm: "Nano Banana Pro (高清绘图) 需要连接 API Key。是否立即连接？",
+
+    // Sidebar Left (Library)
+    libTitleClassic: "藏书阁",
+    libTitleModern: "LIBRARY",
+    libNewBook: "新建图册",
+    libNewBookModern: "New Folder",
+    libEmpty: "暂无藏书",
+    libEmptyModern: "Empty Library",
+    libChapter: "篇章",
+    libChapterModern: "SESSION",
+
+    // Sidebar Right (Console)
+    consoleTitleClassic: "控制台",
+    consoleTitleModern: "CONSOLE",
+    consoleStatus: "队列状态",
+    consoleStatusModern: "QUEUE STATUS",
+    consolePause: "暂停队列",
+    consolePauseModern: "PAUSE",
+    consoleResume: "继续生成",
+    consoleResumeModern: "RESUME",
+    consoleSave: "保存当前会话",
+    consoleSaveModern: "SAVE SESSION",
+    consoleProgress: "进度",
+    consoleProgressModern: "PROGRESS",
+    consoleRemaining: "剩余",
+    consoleRemainingModern: "REMAINING"
   },
   EN: {
     // Landing
@@ -167,6 +201,14 @@ Finally, increasing throughput via parallel processing`,
     cardSavingModern: "Saving...",
     cardRetry: "Retry",
     cardRetryModern: "Retry",
+    cardEdit: "Edit",
+    cardEditModern: "Edit Prompt",
+    cardRegenerate: "Regen",
+    cardRegenerateModern: "Regenerate",
+    cardSaveEdit: "Save & Run",
+    cardSaveEditModern: "Save & Run",
+    cardCancelEdit: "Cancel",
+    cardCancelEditModern: "Cancel",
 
     // Status
     statusWaiting: "Waiting...",
@@ -191,7 +233,33 @@ Finally, increasing throughput via parallel processing`,
     // Alert
     alertQuota: "API Quota Limit Reached. Do not refresh, retrying in background...",
     alertQuotaModern: "API Quota Limit Reached. Retrying in background...",
-    alertHDConfirm: "Nano Banana Pro (HD) requires an API Key. Connect now?"
+    alertHDConfirm: "Nano Banana Pro (HD) requires an API Key. Connect now?",
+
+    // Sidebar Left (Library)
+    libTitleClassic: "Library",
+    libTitleModern: "LIBRARY",
+    libNewBook: "New Book",
+    libNewBookModern: "New Folder",
+    libEmpty: "Empty Library",
+    libEmptyModern: "Empty Library",
+    libChapter: "Chapter",
+    libChapterModern: "SESSION",
+
+    // Sidebar Right (Console)
+    consoleTitleClassic: "Console",
+    consoleTitleModern: "CONSOLE",
+    consoleStatus: "Status",
+    consoleStatusModern: "QUEUE STATUS",
+    consolePause: "Pause Queue",
+    consolePauseModern: "PAUSE",
+    consoleResume: "Resume Queue",
+    consoleResumeModern: "RESUME",
+    consoleSave: "Save Session",
+    consoleSaveModern: "SAVE SESSION",
+    consoleProgress: "Progress",
+    consoleProgressModern: "PROGRESS",
+    consoleRemaining: "Remaining",
+    consoleRemainingModern: "REMAINING"
   }
 };
 

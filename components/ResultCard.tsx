@@ -7,13 +7,17 @@ import { UI_TEXT } from '../constants';
 interface ResultCardProps {
   result: GeneratedResult;
   onDelete: () => void;
-  onRetry?: () => void;
+  onRetry: () => void;
+  onUpdatePrompt: (newPrompt: string) => void; // New prop for prompt updates
   lang: Language;
 }
 
-const ResultCard: React.FC<ResultCardProps> = ({ result, onDelete, onRetry, lang }) => {
+const ResultCard: React.FC<ResultCardProps> = ({ result, onDelete, onRetry, onUpdatePrompt, lang }) => {
   const cardRef = useRef<HTMLDivElement>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editValue, setEditValue] = useState(result.concept?.visualPrompt || '');
+
   const isModern = result.mode === AppMode.MODERN;
   const t = UI_TEXT[lang];
 
@@ -44,8 +48,21 @@ const ResultCard: React.FC<ResultCardProps> = ({ result, onDelete, onRetry, lang
   const handleCopyPrompt = () => {
     if (result.concept?.visualPrompt) {
         navigator.clipboard.writeText(result.concept.visualPrompt);
-        // Optional: show a small toast or visual feedback, for now just simple action
     }
+  };
+
+  const handleSaveEdit = () => {
+      if (editValue.trim()) {
+          onUpdatePrompt(editValue);
+          setIsEditing(false);
+          // Auto trigger regenerate after save
+          setTimeout(onRetry, 100);
+      }
+  };
+
+  const startEditing = () => {
+      setEditValue(result.concept?.visualPrompt || '');
+      setIsEditing(true);
   };
 
   const getStatusDisplay = () => {
@@ -92,8 +109,19 @@ const ResultCard: React.FC<ResultCardProps> = ({ result, onDelete, onRetry, lang
           <div className="md:w-2/5 bg-white relative flex items-center justify-center border-r border-gray-100 p-8">
              
              <div className="w-full h-full relative flex items-center justify-center">
-                {result.imageUrl && result.status === ResultStatus.SUCCESS && (
-                  <div className="absolute top-0 right-0 z-20" data-html2canvas-ignore>
+                <div className="absolute top-0 right-0 z-20 flex gap-2" data-html2canvas-ignore>
+                   {/* Regenerate Button (Icon) */}
+                   {result.concept && (
+                       <button
+                         onClick={onRetry}
+                         className="text-xs bg-white text-gray-500 border border-gray-200 w-8 h-8 flex items-center justify-center rounded hover:border-modern-accent hover:text-modern-accent transition-colors shadow-sm"
+                         title={t.cardRegenerateModern}
+                       >
+                         ↻
+                       </button>
+                   )}
+                   {/* Save Image Button */}
+                   {result.imageUrl && result.status === ResultStatus.SUCCESS && (
                     <button
                       onClick={handleSaveImage}
                       disabled={isSaving}
@@ -101,8 +129,8 @@ const ResultCard: React.FC<ResultCardProps> = ({ result, onDelete, onRetry, lang
                     >
                       {isSaving ? t.cardSavingModern : t.cardSaveModern}
                     </button>
-                  </div>
-                )}
+                  )}
+                </div>
 
                 {isLoading ? (
                   <div className="flex flex-col items-center justify-center">
@@ -158,19 +186,46 @@ const ResultCard: React.FC<ResultCardProps> = ({ result, onDelete, onRetry, lang
                                 <div className="w-1.5 h-1.5 rounded-full bg-gray-300"></div>
                                 <p className="text-[10px] text-gray-400 font-bold uppercase">{t.cardPromptModern}</p>
                             </div>
-                            <button 
-                                onClick={handleCopyPrompt} 
-                                className="text-gray-300 hover:text-modern-accent text-[10px]"
-                                title="Copy Prompt"
-                            >
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                                </svg>
-                            </button>
+                            <div className="flex gap-2">
+                                {/* Edit Button */}
+                                <button
+                                    onClick={startEditing}
+                                    className="text-gray-400 hover:text-modern-accent text-[10px] uppercase font-bold"
+                                    data-html2canvas-ignore
+                                >
+                                    [{t.cardEditModern}]
+                                </button>
+                                {/* Copy Button */}
+                                <button 
+                                    onClick={handleCopyPrompt} 
+                                    className="text-gray-300 hover:text-modern-accent text-[10px]"
+                                    title="Copy Prompt"
+                                    data-html2canvas-ignore
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                    </svg>
+                                </button>
+                            </div>
                         </div>
-                        <p className="text-gray-400 text-[10px] font-mono leading-tight bg-gray-50 p-2 rounded border border-gray-100 truncate">
-                        {result.concept.visualPrompt}
-                        </p>
+                        
+                        {isEditing ? (
+                             <div className="relative" data-html2canvas-ignore>
+                                <textarea
+                                    className="w-full text-[10px] p-2 border border-blue-200 bg-blue-50 text-gray-700 font-mono rounded h-24 focus:ring-1 focus:ring-blue-300 outline-none resize-none"
+                                    value={editValue}
+                                    onChange={(e) => setEditValue(e.target.value)}
+                                />
+                                <div className="flex justify-end gap-2 mt-2">
+                                    <button onClick={() => setIsEditing(false)} className="text-[10px] text-gray-500 hover:text-gray-700">{t.cardCancelEditModern}</button>
+                                    <button onClick={handleSaveEdit} className="text-[10px] bg-modern-accent text-white px-2 py-1 rounded hover:bg-modern-hover">{t.cardSaveEditModern}</button>
+                                </div>
+                             </div>
+                        ) : (
+                             <p className="text-gray-400 text-[10px] font-mono leading-tight bg-gray-50 p-2 rounded border border-gray-100 truncate cursor-text hover:bg-gray-100" onClick={startEditing} title="Click to edit">
+                                {result.concept.visualPrompt}
+                            </p>
+                        )}
                     </div>
                  </>
              ) : (
@@ -226,17 +281,28 @@ const ResultCard: React.FC<ResultCardProps> = ({ result, onDelete, onRetry, lang
             <div className="absolute bottom-0 left-0 w-4 h-4 border-b-2 border-l-2 border-ink-800"></div>
             <div className="absolute bottom-0 right-0 w-4 h-4 border-b-2 border-r-2 border-ink-800"></div>
 
-            {result.imageUrl && result.status === ResultStatus.SUCCESS && (
-              <div className="absolute top-4 right-4 z-20 opacity-0 group-hover:opacity-100 transition-opacity duration-300" data-html2canvas-ignore>
-                <button
-                  onClick={handleSaveImage}
-                  disabled={isSaving}
-                  className="bg-paper-50/90 text-ink-800 border border-ink-800 px-3 py-1 text-xs font-serif hover:bg-cinnabar-700 hover:text-white transition-colors shadow-sm"
-                >
-                  {isSaving ? t.cardSaving : t.cardSave}
-                </button>
-              </div>
-            )}
+            <div className="absolute top-4 right-4 z-20 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300" data-html2canvas-ignore>
+                 {/* Regenerate */}
+                 {result.concept && (
+                     <button
+                        onClick={onRetry}
+                        className="bg-paper-50/90 text-ink-800 border border-ink-800 w-6 h-6 flex items-center justify-center text-xs font-serif hover:bg-ink-800 hover:text-white transition-colors shadow-sm"
+                        title={t.cardRegenerate}
+                     >
+                        ↻
+                     </button>
+                 )}
+                 {/* Save */}
+                {result.imageUrl && result.status === ResultStatus.SUCCESS && (
+                    <button
+                    onClick={handleSaveImage}
+                    disabled={isSaving}
+                    className="bg-paper-50/90 text-ink-800 border border-ink-800 px-3 py-1 text-xs font-serif hover:bg-cinnabar-700 hover:text-white transition-colors shadow-sm"
+                    >
+                    {isSaving ? t.cardSaving : t.cardSave}
+                    </button>
+                )}
+            </div>
 
             {isLoading ? (
               <div className="w-full h-full flex flex-col items-center justify-center bg-paper-50 opacity-80">
@@ -287,17 +353,41 @@ const ResultCard: React.FC<ResultCardProps> = ({ result, onDelete, onRetry, lang
                 <div className="mt-8 pt-4 border-t border-ink-200/50">
                     <div className="flex items-center gap-2 mb-1 justify-between">
                          <p className="text-[10px] text-ink-400 font-serif uppercase tracking-widest mb-1">{t.cardPrompt}</p>
-                         <button 
-                                onClick={handleCopyPrompt} 
-                                className="text-ink-400 hover:text-cinnabar-700 text-[10px]"
-                                title="Copy Prompt"
-                         >
-                            <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                            </svg>
-                         </button>
+                         <div className="flex gap-2" data-html2canvas-ignore>
+                            <button
+                                onClick={startEditing}
+                                className="text-ink-500 hover:text-cinnabar-700 text-[10px] uppercase font-bold"
+                            >
+                                [{t.cardEdit}]
+                            </button>
+                            <button 
+                                    onClick={handleCopyPrompt} 
+                                    className="text-ink-400 hover:text-cinnabar-700 text-[10px]"
+                                    title="Copy Prompt"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                </svg>
+                            </button>
+                         </div>
                     </div>
-                    <p className="text-ink-600 text-[10px] font-mono leading-tight opacity-60 italic truncate">{result.concept.visualPrompt}</p>
+                    {isEditing ? (
+                         <div className="relative" data-html2canvas-ignore>
+                            <textarea
+                                className="w-full text-[10px] p-2 border border-ink-300 bg-paper-100 text-ink-800 font-mono h-24 focus:ring-1 focus:ring-cinnabar-700 outline-none resize-none"
+                                value={editValue}
+                                onChange={(e) => setEditValue(e.target.value)}
+                            />
+                            <div className="flex justify-end gap-2 mt-2">
+                                <button onClick={() => setIsEditing(false)} className="text-[10px] text-ink-500 hover:text-ink-800">{t.cardCancelEdit}</button>
+                                <button onClick={handleSaveEdit} className="text-[10px] bg-cinnabar-700 text-white px-2 py-1 hover:bg-cinnabar-900">{t.cardSaveEdit}</button>
+                            </div>
+                         </div>
+                    ) : (
+                        <p className="text-ink-600 text-[10px] font-mono leading-tight opacity-60 italic truncate cursor-text hover:opacity-100" onClick={startEditing}>
+                            {result.concept.visualPrompt}
+                        </p>
+                    )}
                 </div>
               </>
           ) : (

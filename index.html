@@ -1,10 +1,11 @@
-
 <!DOCTYPE html>
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>PhiloFlow | 逻辑图解</title>
+    <!-- We keep Tailwind CDN for simplicity in this local setup to avoid extra CSS config files, 
+         but ideally this should be installed locally too. -->
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@300;400;500;700;900&family=Ma+Shan+Zheng&family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
     <script>
@@ -125,17 +126,20 @@
 {
   "imports": {
     "@google/genai": "https://aistudiocdn.com/@google/genai@^1.30.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
     "react": "https://aistudiocdn.com/react@^19.2.0",
     "react/": "https://aistudiocdn.com/react@^19.2.0/",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
-    "html2canvas": "https://esm.sh/html2canvas@1.4.1",
-    "jszip": "https://esm.sh/jszip@3.10.1",
-    "file-saver": "https://esm.sh/file-saver@2.0.5"
+    "@vitejs/plugin-react": "https://aistudiocdn.com/@vitejs/plugin-react@^5.1.1",
+    "vite": "https://aistudiocdn.com/vite@^7.2.4",
+    "jszip": "https://aistudiocdn.com/jszip@^3.10.1",
+    "html2canvas": "https://aistudiocdn.com/html2canvas@^1.4.1",
+    "file-saver": "https://aistudiocdn.com/file-saver@^2.0.5"
   }
 }
 </script>
 </head>
   <body>
     <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
   </body>
 </html>

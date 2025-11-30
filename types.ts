@@ -36,6 +36,28 @@ export interface GeneratedResult {
 export enum AppState {
   IDLE = 'IDLE',
   PROCESSING = 'PROCESSING', // Combined state for the queue
+  PAUSED = 'PAUSED', // New state
   COMPLETE = 'COMPLETE',
   ERROR = 'ERROR'
+}
+
+// --- Library & Storage Types ---
+
+export interface SavedSession {
+  id: string;
+  name: string; // Chapter Name
+  timestamp: number;
+  results: GeneratedResult[];
+  mode: AppMode;
+}
+
+export type LibraryItemType = 'folder' | 'file';
+
+export interface LibraryItem {
+  id: string;
+  type: LibraryItemType;
+  name: string; // Book Name or Chapter Name
+  children?: LibraryItem[]; // Only for folders
+  data?: SavedSession; // Only for files
+  createdAt: number;
 }
