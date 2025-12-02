@@ -1,4 +1,5 @@
 
+
 import React, { useState } from 'react';
 import { AppMode, GeneratedResult, LibraryItem, ResultStatus, Language } from '../types';
 import { UI_TEXT } from '../constants';
@@ -10,6 +11,7 @@ interface SidebarRightProps {
   results: GeneratedResult[];
   isPaused: boolean;
   onTogglePause: () => void;
+  onClearResults: () => void; // New prop
   library: LibraryItem[]; // Needed to pick where to save
   onRefreshLibrary: () => void;
 }
@@ -19,7 +21,8 @@ const SidebarRight: React.FC<SidebarRightProps> = ({
   lang,
   results, 
   isPaused, 
-  onTogglePause, 
+  onTogglePause,
+  onClearResults,
   library,
   onRefreshLibrary 
 }) => {
@@ -36,26 +39,32 @@ const SidebarRight: React.FC<SidebarRightProps> = ({
   const remaining = total - processed;
   const percent = total > 0 ? Math.round((processed / total) * 100) : 0;
 
-  const handleSaveSession = () => {
+  const handleSaveSession = async () => {
     if (!selectedFolderId || !sessionName.trim()) {
       alert("Please select a folder and enter a name.");
       return;
     }
     
     setIsSaving(true);
-    const sessionData = {
-      id: `session-${Date.now()}`,
-      name: sessionName,
-      timestamp: Date.now(),
-      results: results,
-      mode: mode
-    };
+    try {
+      const sessionData = {
+        id: `session-${Date.now()}`,
+        name: sessionName,
+        timestamp: Date.now(),
+        results: results,
+        mode: mode
+      };
 
-    saveSessionToFolder(selectedFolderId, sessionName, sessionData);
-    onRefreshLibrary();
-    setSessionName('');
-    setIsSaving(false);
-    alert("Session Saved!");
+      await saveSessionToFolder(selectedFolderId, sessionName, sessionData);
+      onRefreshLibrary();
+      setSessionName('');
+      alert("Session Saved!");
+    } catch (e: any) {
+      console.error(e);
+      alert("Failed to save session: " + e.message);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const baseClasses = isModern 
@@ -96,7 +105,7 @@ const SidebarRight: React.FC<SidebarRightProps> = ({
         )}
         
         {/* Progress Bar */}
-        <div className="mt-4">
+        <div className="mt-4 mb-4">
             <div className="flex justify-between text-[10px] mb-1">
                 <span>{isModern ? t.consoleProgressModern : t.consoleProgress}</span>
                 <span>{percent}%</span>
@@ -111,6 +120,19 @@ const SidebarRight: React.FC<SidebarRightProps> = ({
                 {remaining} {isModern ? t.consoleRemainingModern : t.consoleRemaining}
             </div>
         </div>
+
+        {/* Clear Button */}
+        <button 
+            onClick={onClearResults}
+            disabled={total === 0}
+            className={`w-full py-2 text-xs font-bold rounded shadow-sm transition-all border disabled:opacity-50 ${
+                isModern 
+                ? 'border-red-200 text-red-500 hover:bg-red-50 bg-white' 
+                : 'border-cinnabar-700 text-cinnabar-700 hover:bg-paper-200 bg-paper-50'
+            }`}
+        >
+            {isModern ? t.consoleClearModern : t.consoleClear}
+        </button>
       </div>
 
       {/* 3. Save Session */}

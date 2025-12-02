@@ -1,16 +1,17 @@
 
+
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import JSZip from 'jszip';
 import FileSaver from 'file-saver';
 import html2canvas from 'html2canvas';
 import { chunkText, analyzeSingleChunk, generateConceptImage, setApiKey, initApiKey, hasUserApiKey } from './services/geminiService';
-import { getLibrary, getLibrary as loadLibraryFromStorage } from './services/storageService'; // Import new service
+import { getLibrary as loadLibraryFromStorage } from './services/storageService'; 
 import { GeneratedResult, AppState, AppMode, ResultStatus, Language, LibraryItem, SavedSession } from './types';
 import { UI_TEXT } from './constants';
 import Button from './components/Button';
 import ResultCard from './components/ResultCard';
-import SidebarLeft from './components/SidebarLeft'; // Import Sidebar
-import SidebarRight from './components/SidebarRight'; // Import Sidebar
+import SidebarLeft from './components/SidebarLeft'; 
+import SidebarRight from './components/SidebarRight'; 
 
 const App: React.FC = () => {
   const [mode, setMode] = useState<AppMode | null>(null); // Null means Landing Screen
@@ -42,13 +43,26 @@ const App: React.FC = () => {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Initialize Library
+  // Initialize Library (Async)
   useEffect(() => {
-    setLibrary(loadLibraryFromStorage());
+    const initLib = async () => {
+        try {
+            const data = await loadLibraryFromStorage();
+            setLibrary(data);
+        } catch (e) {
+            console.error("Failed to load library", e);
+        }
+    };
+    initLib();
   }, []);
 
-  const refreshLibrary = () => {
-    setLibrary(loadLibraryFromStorage());
+  const refreshLibrary = async () => {
+    try {
+        const data = await loadLibraryFromStorage();
+        setLibrary(data);
+    } catch (e) {
+        console.error("Failed to refresh library", e);
+    }
   };
 
   useEffect(() => {
@@ -122,6 +136,14 @@ const App: React.FC = () => {
     }));
   };
 
+  const handleClearResults = () => {
+      if (results.length === 0) return;
+      if (window.confirm(isModern ? "Clear all results?" : "确定清空所有结果吗？")) {
+          setResults([]);
+          setAppState(AppState.IDLE);
+      }
+  };
+
   // Toggle Pause
   const togglePause = () => {
     const nextState = !isPaused;
@@ -160,6 +182,9 @@ const App: React.FC = () => {
     setAppState(AppState.PROCESSING);
     setErrorMsg(null);
 
+    // Auto-clear results for new generation
+    setResults([]);
+
     const chunks = chunkText(inputText);
     const newItems: GeneratedResult[] = chunks.map((chunk, i) => ({
       id: `res-${Date.now()}-${i}`,
@@ -169,7 +194,7 @@ const App: React.FC = () => {
       imageUrl: null
     }));
 
-    setResults(prev => [...newItems, ...prev]);
+    setResults(newItems); // Set directly instead of appending
 
     const processQueue = async () => {
         let quotaExceeded = false;
@@ -491,6 +516,7 @@ const App: React.FC = () => {
             results={results}
             isPaused={isPaused}
             onTogglePause={togglePause}
+            onClearResults={handleClearResults}
             library={library}
             onRefreshLibrary={refreshLibrary}
          />

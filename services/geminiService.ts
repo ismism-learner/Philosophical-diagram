@@ -116,8 +116,9 @@ export const generateConceptImage = async (
   const model = isHD ? IMAGE_MODEL_HD : IMAGE_MODEL_SD;
   
   // Enforce style via prompt injection
+  // UPDATE: Classic mode now uses "Minimalist hand-drawn" instead of "Da Vinci/Intricate"
   const stylePrefix = mode === AppMode.CLASSIC
-    ? "High quality vintage technical drawing, da vinci sketch style, ink on parchment, intricate details: "
+    ? "Minimalist hand-drawn illustration, simple ink lines on parchment, woodblock print style, clean layout, no shading, schematic sketch: "
     : "Minimalist technical diagram, vector art, clean white background, black lines, high contrast, schematic representation, professional: ";
 
   const finalPrompt = stylePrefix + basePrompt;

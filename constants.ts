@@ -1,4 +1,5 @@
 
+
 export const TEXT_MODEL = 'gemini-2.5-flash';
 export const IMAGE_MODEL_SD = 'gemini-2.5-flash-image'; // Nano Banana
 export const IMAGE_MODEL_HD = 'gemini-3-pro-image-preview'; // Nano Banana Pro
@@ -131,7 +132,9 @@ export const UI_TEXT = {
     consoleProgress: "进度",
     consoleProgressModern: "PROGRESS",
     consoleRemaining: "剩余",
-    consoleRemainingModern: "REMAINING"
+    consoleRemainingModern: "REMAINING",
+    consoleClear: "清空结果",
+    consoleClearModern: "CLEAR RESULTS"
   },
   EN: {
     // Landing
@@ -259,7 +262,9 @@ Finally, increasing throughput via parallel processing`,
     consoleProgress: "Progress",
     consoleProgressModern: "PROGRESS",
     consoleRemaining: "Remaining",
-    consoleRemainingModern: "REMAINING"
+    consoleRemainingModern: "REMAINING",
+    consoleClear: "Clear Results",
+    consoleClearModern: "CLEAR RESULTS"
   }
 };
 
@@ -273,8 +278,8 @@ export const SYSTEM_INSTRUCTION_CLASSIC_ZH = `
 2. **解释**：在 "explanation" 字段中，用【中文】以学术注解的口吻清晰阐述该段落的含义。
 3. **视觉指令 (visualPrompt)**：
    - 必须只包含英文。
-   - 风格：Vintage technical drawing, da vinci sketch, etching style, ink on parchment.
-   - 内容：描述节点、连接线、层级结构，具有历史感和手绘质感。
+   - 风格：Minimalist hand-drawn illustration, simple ink lines, woodblock print style. (简约手绘，白描风格，木刻版画感)
+   - 内容：清晰的节点、简单的连接线，避免复杂的阴影和透视，追求古籍插图的平面感。
 `;
 
 export const SYSTEM_INSTRUCTION_CLASSIC_EN = `
@@ -285,8 +290,8 @@ Please follow these steps:
 2. **Explain**: In the "explanation" field, use 【English】 to clearly articulate the meaning of the paragraph in an academic annotation tone.
 3. **Visual Instruction (visualPrompt)**:
    - Must contain ONLY English.
-   - Style: Vintage technical drawing, da vinci sketch, etching style, ink on parchment.
-   - Content: Describe nodes, connecting lines, hierarchical structures with a historical and hand-drawn quality.
+   - Style: Minimalist hand-drawn illustration, simple ink lines, woodblock print style.
+   - Content: Clear nodes, simple connecting lines, avoid complex shading and perspective, aim for the flatness of ancient book illustrations.
 `;
 
 // ---------------- MODERN MODE (Technical/Logic) ----------------
@@ -295,7 +300,7 @@ export const SYSTEM_INSTRUCTION_MODERN_ZH = `
 
 请按照以下步骤操作：
 1. **分析**：识别该段落中的逻辑关系、因果链条或核心论点。
-2. **解释 (explanation)**：在 "explanation" 字段中，用【中文】以简练、专业、客观的口吻解释该逻辑单元的核心内容。
+2. **解释 (explanation)**：在 "explanation" field, use 【中文】以简练、专业、客观的口吻解释该逻辑单元的核心内容。
 3. **视觉指令 (visualPrompt)**：
    - 必须只包含英文。
    - 风格：Minimalist technical diagram, vector art, clean white background, black lines, high contrast, schematic representation.

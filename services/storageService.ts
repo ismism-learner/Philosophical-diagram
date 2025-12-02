@@ -1,19 +1,60 @@
 
-import { LibraryItem, SavedSession, LibraryItemType } from '../types';
+import { LibraryItem, SavedSession } from '../types';
 
-const LIB_KEY = 'philo_flow_library_v1';
+const DB_NAME = 'PhiloFlowDB';
+const DB_VERSION = 1;
+const STORE_KEY = 'root_library';
+const STORE_NAME = 'library_store';
 
-export const getLibrary = (): LibraryItem[] => {
-  const data = localStorage.getItem(LIB_KEY);
-  return data ? JSON.parse(data) : [];
+// Helper: Open Database
+const openDB = (): Promise<IDBDatabase> => {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DB_NAME, DB_VERSION);
+
+    request.onupgradeneeded = (event) => {
+      const db = (event.target as IDBOpenDBRequest).result;
+      if (!db.objectStoreNames.contains(STORE_NAME)) {
+        db.createObjectStore(STORE_NAME);
+      }
+    };
+
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
 };
 
-export const saveLibrary = (items: LibraryItem[]) => {
-  localStorage.setItem(LIB_KEY, JSON.stringify(items));
+// Helper: Get the entire library tree
+export const getLibrary = async (): Promise<LibraryItem[]> => {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(STORE_NAME, 'readonly');
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.get(STORE_KEY);
+
+    request.onsuccess = () => {
+      resolve(request.result || []);
+    };
+    request.onerror = () => reject(request.error);
+  });
 };
 
-export const createFolder = (name: string): LibraryItem[] => {
-  const library = getLibrary();
+// Helper: Save the entire library tree
+const saveLibraryData = async (data: LibraryItem[]): Promise<void> => {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(STORE_NAME, 'readwrite');
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.put(data, STORE_KEY);
+
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+};
+
+// --- CRUD Operations ---
+
+export const createFolder = async (name: string): Promise<LibraryItem[]> => {
+  const library = await getLibrary();
   const newFolder: LibraryItem = {
     id: `folder-${Date.now()}`,
     type: 'folder',
@@ -22,12 +63,12 @@ export const createFolder = (name: string): LibraryItem[] => {
     createdAt: Date.now()
   };
   const updated = [newFolder, ...library];
-  saveLibrary(updated);
+  await saveLibraryData(updated);
   return updated;
 };
 
-export const saveSessionToFolder = (folderId: string, name: string, sessionData: SavedSession): LibraryItem[] => {
-  const library = getLibrary();
+export const saveSessionToFolder = async (folderId: string, name: string, sessionData: SavedSession): Promise<LibraryItem[]> => {
+  const library = await getLibrary();
   
   const updateRecursive = (items: LibraryItem[]): LibraryItem[] => {
     return items.map(item => {
@@ -50,12 +91,12 @@ export const saveSessionToFolder = (folderId: string, name: string, sessionData:
   };
 
   const updated = updateRecursive(library);
-  saveLibrary(updated);
+  await saveLibraryData(updated);
   return updated;
 };
 
-export const deleteItem = (itemId: string): LibraryItem[] => {
-  const library = getLibrary();
+export const deleteItem = async (itemId: string): Promise<LibraryItem[]> => {
+  const library = await getLibrary();
 
   const filterRecursive = (items: LibraryItem[]): LibraryItem[] => {
     return items
@@ -69,6 +110,26 @@ export const deleteItem = (itemId: string): LibraryItem[] => {
   };
 
   const updated = filterRecursive(library);
-  saveLibrary(updated);
+  await saveLibraryData(updated);
   return updated;
+};
+
+export const renameItem = async (itemId: string, newName: string): Promise<LibraryItem[]> => {
+    const library = await getLibrary();
+  
+    const updateRecursive = (items: LibraryItem[]): LibraryItem[] => {
+      return items.map(item => {
+        if (item.id === itemId) {
+          return { ...item, name: newName };
+        }
+        if (item.children) {
+          return { ...item, children: updateRecursive(item.children) };
+        }
+        return item;
+      });
+    };
+  
+    const updated = updateRecursive(library);
+    await saveLibraryData(updated);
+    return updated;
 };
