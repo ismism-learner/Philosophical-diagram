@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { 
   TEXT_MODEL, 
@@ -35,6 +34,77 @@ function isRetryableError(error: any): boolean {
 export function chunkText(text: string): string[] {
   const lines = text.replace(/\r\n/g, '\n').split('\n');
   return lines.filter(line => line.trim().length > 0);
+}
+
+// --- OCR PRE-PROCESSING ---
+// Refined Logic (The "Aggressive Flow" fix with Header & Quote Awareness):
+// 1. Headers (lines starting with #) are treated as hard breaks. They stand alone.
+// 2. Paragraphs ONLY end when they encounter a Strong Terminal Punctuation Mark (. ? ! " etc).
+// 3. Double quotes ALONE are NOT terminal. They must follow punctuation (e.g. ." or ?” is terminal, but " is not).
+
+export function preprocessOCRText(text: string): string {
+  // 1. Basic cleanup: split by newline, trim whitespace, filter empty lines
+  const rawLines = text
+    .split(/\r?\n/)
+    .map(l => l.trim())
+    .filter(l => l.length > 0);
+
+  if (rawLines.length === 0) return "";
+
+  const mergedLines: string[] = [];
+  let buffer = "";
+
+  // Regex for "Terminal Punctuation".
+  // REVISED: Double quotes (") are NO LONGER strong terminators on their own.
+  // A line is considered a paragraph end ONLY if it contains a sentence-ending mark (. ? ! 。 ！ ？).
+  // We allow an optional closing quote/bracket AFTER the punctuation.
+  const TERMINAL_PUNCTUATION = /[.!?。！?？][”"’'」』]?$/;
+
+  for (const line of rawLines) {
+    // Check for Headers (Markdown style #)
+    const isHeader = line.startsWith('#');
+    const bufferIsHeader = buffer.startsWith('#');
+
+    // If buffer is empty, start a new block
+    if (!buffer) {
+      buffer = line;
+      continue;
+    }
+
+    // HEADER RULES:
+    // 1. If the new line is a header, it breaks the current flow (even if previous line was incomplete).
+    // 2. If the current buffer is a header, it stands alone (don't merge next text into it).
+    if (isHeader || bufferIsHeader) {
+        mergedLines.push(buffer);
+        buffer = line;
+        continue;
+    }
+
+    // PARAGRAPH MERGE RULES:
+    // Check if the BUFFER (the accumulated text so far) ends with a definitive stop.
+    if (TERMINAL_PUNCTUATION.test(buffer)) {
+        // The previous block is a complete sentence/paragraph.
+        // Push it to results.
+        mergedLines.push(buffer);
+        // Start new buffer with current line.
+        buffer = line;
+    } else {
+        // The previous block did NOT end in terminal punctuation.
+        // This covers:
+        // 1. Pagination break: "The nature of" (no punct) + "being is..."
+        // 2. Noise: "The nature of" (no punct) + "14" (Page num, no punct) + "being..."
+        // 3. Quote splits: 'He said "The' (quote no punct) + 'World"'
+        // Merge current line into buffer with a space.
+        buffer += " " + line;
+    }
+  }
+
+  // Push the final remaining buffer
+  if (buffer) {
+    mergedLines.push(buffer);
+  }
+
+  return mergedLines.join('\n');
 }
 
 // --- OPENAI COMPATIBLE FETCH HELPERS ---
@@ -182,7 +252,7 @@ export const analyzeSingleChunk = async (
  */
 export const generateConceptImage = async (
   basePrompt: string, 
-  mode: AppMode,
+  mode: AppMode, 
   settings: AISettings,
   isHD: boolean = false, 
   retryCount = 0
@@ -190,7 +260,7 @@ export const generateConceptImage = async (
   
   const stylePrefix = mode === AppMode.CLASSIC
     ? "Minimalist hand-drawn illustration, simple ink lines on parchment, woodblock print style, clean layout, no shading, schematic sketch: "
-    : "Minimalist technical diagram, vector art, clean white background, black lines, high contrast, schematic representation, professional: ";
+    : "Scientific publication figure, academic vector illustration, clean lines, high contrast, white background: ";
 
   const finalPrompt = stylePrefix + basePrompt;
 

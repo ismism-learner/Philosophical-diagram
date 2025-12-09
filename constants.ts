@@ -1,6 +1,9 @@
 
 
 
+
+
+
 export const TEXT_MODEL = 'gemini-2.5-flash';
 export const IMAGE_MODEL_SD = 'gemini-2.5-flash-image'; // Nano Banana
 export const IMAGE_MODEL_HD = 'gemini-3-pro-image-preview'; // Nano Banana Pro
@@ -28,6 +31,10 @@ export const UI_TEXT = {
     inputLabelModern: "Input Source",
     importFile: "上传文稿 (.md/.txt/.docx)",
     importFileModern: "Import File",
+    ocrLabel: "OCR 智能清洗",
+    ocrLabelModern: "OCR Clean",
+    ocrHint: "自动合并无标点段落至上文，及 # 标题至下文",
+    ocrHintModern: "Merge headers (#) down & broken lines up",
     clear: "清空",
     clearModern: "Clear",
     generate: "开始绘制",
@@ -172,6 +179,10 @@ export const UI_TEXT = {
     inputLabelModern: "Input Source",
     importFile: "Import File (.md/.txt/.docx)",
     importFileModern: "Import File",
+    ocrLabel: "OCR Clean Mode",
+    ocrLabelModern: "OCR Clean",
+    ocrHint: "Fix broken lines & merge headers",
+    ocrHintModern: "Merge headers (#) down & broken lines up",
     clear: "Clear",
     clearModern: "Clear",
     generate: "Start Generation",
@@ -323,29 +334,37 @@ Please follow these steps:
    - Content: Clear nodes, simple connecting lines, avoid complex shading and perspective, aim for the flatness of ancient book illustrations.
 `;
 
-// ---------------- MODERN MODE (Technical/Logic) ----------------
-export const SYSTEM_INSTRUCTION_MODERN_ZH = `
-你是一位资深的技术文档工程师和逻辑分析师。我将提供给你一段文本（可能是视频字幕的一句话、一段旁白或技术说明）。你的任务是**仅针对这一段文本**进行分析，将其转化为清晰、极简的逻辑示意图指令。
+// ---------------- MODERN MODE (Scientific/Technical) ----------------
+// Updated to "Scientific Figure Designer" persona with SCI/SSCI standards
 
-请按照以下步骤操作：
-1. **分析**：识别该段落中的逻辑关系、因果链条或核心论点。
-2. **解释 (explanation)**：在 "explanation" field, use 【中文】以简练、专业、客观的口吻解释该逻辑单元的核心内容。
+export const SYSTEM_INSTRUCTION_MODERN_ZH = `
+你是一位经验丰富的科学配图设计师，熟悉这一领域国际学术期刊（如 SCI/SSCI）的视觉风格和排版惯例。我将为你提供一段来自研究文章、技术文档或视频文稿的文本。
+你的任务是仔细理解该文本，识别其中的核心机制、流程或变量关系，并生成一个适用于发表级质量科学配图的英文提示词（visualPrompt）。
+
+请按照以下步骤操作，并以严格的 JSON 格式输出：
+
+1. **分析 (Analyze)**：理解文本中的研究对象、关键变量（自变量、因变量、中介变量等）或逻辑流程。
+2. **解释 (explanation)**：在 "explanation" 字段中，用【中文】以简练、专业、客观的口吻解释该逻辑单元的核心内容。
 3. **视觉指令 (visualPrompt)**：
-   - 必须只包含英文。
-   - 风格：Minimalist technical diagram, vector art, clean white background, black lines, high contrast, schematic representation.
-   - 关键词： "flowchart", "block diagram", "arrows", "simple geometric shapes", "black on white", "clean layout".
-   - 避免：Do not use complex backgrounds, no photorealism, no 3D effects, no chaotic elements.
+   - 必须完全使用【英文】编写。
+   - 这是一个独立的段落，将被直接用于生成图片。
+   - **风格要求**：Professional academic vector illustration with clean lines, suitable for journal publication. Style similar to Adobe Illustrator, BioRender, or high-quality matplotlib visualizations.
+   - **内容要求**：清晰描述图中的核心视觉内容（如：Experimental flowchart, Mechanism schematic, Variable relationship diagram, or Conceptual framework）。
+   - **视觉细节**：Clean layout, minimal color palette, high contrast, clear labels, sans-serif fonts, white background. 避免混乱的背景或非学术的装饰。
 `;
 
 export const SYSTEM_INSTRUCTION_MODERN_EN = `
-You are a senior technical documentation engineer and logic analyst. I will provide you with a text segment (could be a subtitle line, narration, or technical description). Your task is to analyze **only this specific segment** and convert it into clear, minimalist logic diagram instructions.
+You are an experienced scientific figure designer, familiar with the visual style and layout conventions of international academic journals (SCI/SSCI). I will provide you with a text segment from a research article, technical document, or transcript.
+Your task is to carefully understand the text and generate a prompt for a publication-quality scientific figure.
 
-Please follow these steps:
-1. **Analyze**: Identify logical relationships, causal chains, or core arguments in the paragraph.
-2. **Explain (explanation)**: In the "explanation" field, use 【English】 to explain the core content of this logical unit in a concise, professional, and objective tone.
+Please follow these steps and output strictly in JSON format:
+
+1. **Analyze**: Identify the study subject, key variables, logical structure, or experimental procedure in the text.
+2. **Explain**: In the "explanation" field, use 【English】 to explain the core content of this logical unit in a professional and objective tone.
 3. **Visual Instruction (visualPrompt)**:
-   - Must contain ONLY English.
-   - Style: Minimalist technical diagram, vector art, clean white background, black lines, high contrast, schematic representation.
-   - Keywords: "flowchart", "block diagram", "arrows", "simple geometric shapes", "black on white", "clean layout".
-   - Avoid: Do not use complex backgrounds, no photorealism, no 3D effects, no chaotic elements.
+   - Must be written entirely in **English**.
+   - This should be a standalone paragraph that can be used directly for image generation.
+   - **Style Requirements**: Professional academic vector illustration with clean lines, suitable for journal publication. Style similar to Adobe Illustrator, BioRender, or high-quality matplotlib visualizations.
+   - **Content**: Clearly describe the core visual content (e.g., Experimental flowchart, Mechanism schematic, Variable relationship diagram, or Conceptual framework).
+   - **Details**: Clean layout, minimal color palette, high contrast, clear labels, sans-serif fonts, white background. Avoid chaotic backgrounds.
 `;

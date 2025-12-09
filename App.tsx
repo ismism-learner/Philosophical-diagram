@@ -1,4 +1,6 @@
 
+
+
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import JSZip from 'jszip';
 import FileSaver from 'file-saver';
@@ -7,7 +9,7 @@ import html2canvas from 'html2canvas';
 import { Document, Packer, Paragraph, TextRun, ImageRun, HeadingLevel, AlignmentType, BorderStyle } from 'docx';
 import mammoth from 'mammoth';
 
-import { chunkText, analyzeSingleChunk, generateConceptImage, loadSettings, saveSettings } from './services/geminiService';
+import { chunkText, analyzeSingleChunk, generateConceptImage, loadSettings, saveSettings, preprocessOCRText } from './services/geminiService';
 import { getLibrary as loadLibraryFromStorage } from './services/storageService'; 
 import { GeneratedResult, AppState, AppMode, ResultStatus, Language, LibraryItem, SavedSession, AISettings, AIProvider } from './types';
 import { UI_TEXT, TEXT_MODEL, IMAGE_MODEL_SD } from './constants';
@@ -37,6 +39,7 @@ const App: React.FC = () => {
   const [sessionTotalRequests, setSessionTotalRequests] = useState(0);
 
   const [isHD, setIsHD] = useState(false);
+  const [isOCR, setIsOCR] = useState(false); // OCR Mode State
   const [isDownloadingBatch, setIsDownloadingBatch] = useState(false);
   const [isExportingDocx, setIsExportingDocx] = useState(false); 
   const [hoveredSide, setHoveredSide] = useState<'classic' | 'modern' | null>(null);
@@ -192,7 +195,20 @@ const App: React.FC = () => {
     setErrorMsg(null);
     setResults([]);
 
-    const chunks = chunkText(inputText);
+    // Pre-process text if OCR mode is enabled
+    let textToProcess = inputText;
+    if (isOCR) {
+        textToProcess = preprocessOCRText(inputText);
+    }
+
+    const chunks = chunkText(textToProcess);
+    
+    // Check if cleaning resulted in empty text
+    if (chunks.length === 0) {
+        setAppState(AppState.IDLE);
+        return;
+    }
+
     const newItems: GeneratedResult[] = chunks.map((chunk, i) => ({
       id: `res-${Date.now()}-${i}`,
       mode: mode,
@@ -240,7 +256,7 @@ const App: React.FC = () => {
 
     processQueue();
 
-  }, [inputText, isHD, mode, language, settings]); // Added settings dependency
+  }, [inputText, isHD, mode, language, settings, isOCR]); 
 
   const processSingleItem = async (id: string, source: string, mode: AppMode): Promise<any | null> => {
     try {
@@ -329,14 +345,19 @@ const App: React.FC = () => {
   };
 
   const base64DataURLToUint8Array = (dataURL: string) => {
-    const base64String = dataURL.split(',')[1];
-    const binaryString = window.atob(base64String);
-    const len = binaryString.length;
-    const bytes = new Uint8Array(len);
-    for (let i = 0; i < len; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
+    try {
+      const base64String = dataURL.includes(',') ? dataURL.split(',')[1] : dataURL;
+      const binaryString = window.atob(base64String);
+      const len = binaryString.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      return bytes;
+    } catch (e) {
+      console.error("Base64 conversion failed", e);
+      return null;
     }
-    return bytes;
   };
 
   const handleDocxExport = async () => {
@@ -347,6 +368,9 @@ const App: React.FC = () => {
     }
 
     setIsExportingDocx(true);
+    
+    // Yield to UI thread to ensure spinner shows before heavy calculation
+    await new Promise(resolve => setTimeout(resolve, 50));
 
     try {
         const docChildren: any[] = [];
@@ -360,13 +384,14 @@ const App: React.FC = () => {
             })
         );
 
-        successResults.forEach((res, index) => {
+        for (let i = 0; i < successResults.length; i++) {
+            const res = successResults[i];
             const concept = res.concept!;
 
             // 1. Source Text
             docChildren.push(
                 new Paragraph({
-                    text: `#${index + 1}: ${concept.conceptTitle || "Untitled"}`,
+                    text: `#${i + 1}: ${concept.conceptTitle || "Untitled"}`,
                     heading: HeadingLevel.HEADING_2,
                     spacing: { before: 200, after: 100 }
                 }),
@@ -378,7 +403,7 @@ const App: React.FC = () => {
                 new Paragraph({
                     children: [
                         new TextRun({
-                            text: res.sourceText,
+                            text: res.sourceText || "No text",
                             italics: true,
                         })
                     ],
@@ -405,7 +430,7 @@ const App: React.FC = () => {
                 new Paragraph({
                     children: [
                         new TextRun({
-                            text: concept.explanation,
+                            text: concept.explanation || "No explanation",
                         })
                     ],
                     spacing: { after: 200 }
@@ -414,24 +439,46 @@ const App: React.FC = () => {
 
             // 3. Image
             if (res.imageUrl) {
-                const imageBuffer = base64DataURLToUint8Array(res.imageUrl);
-                docChildren.push(
-                    new Paragraph({
-                        alignment: AlignmentType.CENTER,
-                        children: [
-                            new ImageRun({
-                                data: imageBuffer,
-                                transformation: {
-                                    width: 500,
-                                    height: 281, 
-                                },
-                            }),
-                        ],
-                        spacing: { before: 200, after: 400 }
-                    })
-                );
+                try {
+                    const imageBuffer = base64DataURLToUint8Array(res.imageUrl);
+                    if (imageBuffer) {
+                        docChildren.push(
+                            new Paragraph({
+                                alignment: AlignmentType.CENTER,
+                                children: [
+                                    new ImageRun({
+                                        data: imageBuffer,
+                                        transformation: {
+                                            width: 500,
+                                            height: 281, 
+                                        },
+                                    }),
+                                ],
+                                spacing: { before: 200, after: 400 }
+                            })
+                        );
+                    } else {
+                        throw new Error("Invalid image data");
+                    }
+                } catch (imgErr) {
+                    console.warn(`Skipping invalid image for item ${i}`, imgErr);
+                    // Add placeholder for failed image
+                    docChildren.push(
+                        new Paragraph({
+                            children: [
+                                new TextRun({
+                                    text: isModern ? "[Image Export Failed]" : "[图片导出失败]",
+                                    color: "FF0000",
+                                    italics: true
+                                })
+                            ],
+                            alignment: AlignmentType.CENTER,
+                            spacing: { before: 100, after: 100 }
+                        })
+                    );
+                }
             }
-        });
+        }
 
         const doc = new Document({
             sections: [{
@@ -446,7 +493,7 @@ const App: React.FC = () => {
 
     } catch (error) {
         console.error("Docx export failed", error);
-        alert("Export failed.");
+        alert(isModern ? "Export failed. Check console for details." : "导出失败。请检查控制台详情。");
     } finally {
         setIsExportingDocx(false);
     }
@@ -586,7 +633,21 @@ const App: React.FC = () => {
                             style={!isModern ? { lineHeight: '28px' } : {}} 
                         />
                         <div className={`mt-4 flex justify-between items-center pt-4 border-t ${isModern ? 'border-gray-100' : 'border-ink-200'}`}>
-                             <div className={`text-xs italic ${isModern ? 'text-gray-400 font-modern' : 'text-ink-400 font-serif'}`}>{isModern ? t.inputHintModern : t.inputHintClassic}</div>
+                             {/* OCR Switch & Hints */}
+                             <div className="flex items-center gap-6">
+                                <div className={`text-xs italic ${isModern ? 'text-gray-400 font-modern' : 'text-ink-400 font-serif'}`}>
+                                    {isModern ? t.inputHintModern : t.inputHintClassic}
+                                </div>
+                                <div className="flex items-center gap-2 cursor-pointer" onClick={() => setIsOCR(!isOCR)} title={isModern ? t.ocrHintModern : t.ocrHint}>
+                                    <div className={`w-8 h-4 rounded-full transition-colors relative ${isOCR ? (isModern ? 'bg-modern-accent' : 'bg-cinnabar-700') : 'bg-gray-300'}`}>
+                                        <div className={`absolute top-0.5 left-0.5 w-3 h-3 bg-white rounded-full transition-transform ${isOCR ? 'translate-x-4' : ''}`}></div>
+                                    </div>
+                                    <span className={`text-[10px] font-bold uppercase tracking-wider ${isOCR ? (isModern ? 'text-modern-accent' : 'text-cinnabar-700') : 'text-gray-400'}`}>
+                                        {isModern ? t.ocrLabelModern : t.ocrLabel}
+                                    </span>
+                                </div>
+                             </div>
+
                              <div className="flex gap-4">
                                 <Button variant={isModern ? 'modern-secondary' : 'secondary'} onClick={() => setInputText('')} disabled={!inputText} mode={mode}>{isModern ? t.clearModern : t.clear}</Button>
                                 <Button variant={isModern ? 'modern-primary' : 'primary'} onClick={handleAnalyzeAndGenerate} isLoading={appState === AppState.PROCESSING} disabled={!inputText.trim()} mode={mode}>{appState === AppState.PROCESSING ? (isModern ? t.processingModern : t.processing) : (isModern ? t.generateModern : t.generate)}</Button>
