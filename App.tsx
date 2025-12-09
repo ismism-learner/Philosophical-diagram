@@ -1,17 +1,21 @@
 
-
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import JSZip from 'jszip';
 import FileSaver from 'file-saver';
 import html2canvas from 'html2canvas';
-import { chunkText, analyzeSingleChunk, generateConceptImage, setApiKey, initApiKey, hasUserApiKey } from './services/geminiService';
+// Import Docx library
+import { Document, Packer, Paragraph, TextRun, ImageRun, HeadingLevel, AlignmentType, BorderStyle } from 'docx';
+import mammoth from 'mammoth';
+
+import { chunkText, analyzeSingleChunk, generateConceptImage, loadSettings, saveSettings } from './services/geminiService';
 import { getLibrary as loadLibraryFromStorage } from './services/storageService'; 
-import { GeneratedResult, AppState, AppMode, ResultStatus, Language, LibraryItem, SavedSession } from './types';
-import { UI_TEXT } from './constants';
+import { GeneratedResult, AppState, AppMode, ResultStatus, Language, LibraryItem, SavedSession, AISettings, AIProvider } from './types';
+import { UI_TEXT, TEXT_MODEL, IMAGE_MODEL_SD } from './constants';
 import Button from './components/Button';
 import ResultCard from './components/ResultCard';
 import SidebarLeft from './components/SidebarLeft'; 
 import SidebarRight from './components/SidebarRight'; 
+import ImageLightbox from './components/ImageLightbox';
 
 const App: React.FC = () => {
   const [mode, setMode] = useState<AppMode | null>(null); // Null means Landing Screen
@@ -23,10 +27,10 @@ const App: React.FC = () => {
   const [results, setResults] = useState<GeneratedResult[]>([]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   
-  const [hasApiKey, setHasApiKey] = useState(false);
-  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
-  const [apiKeyInput, setApiKeyInput] = useState('');
-  const [rememberKey, setRememberKey] = useState(false);
+  // Settings & API State
+  const [settings, setSettings] = useState<AISettings>(loadSettings());
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [editingSettings, setEditingSettings] = useState<AISettings>(loadSettings());
   
   // Rate Limit Monitor
   const [requestHistory, setRequestHistory] = useState<number[]>([]);
@@ -34,16 +38,19 @@ const App: React.FC = () => {
 
   const [isHD, setIsHD] = useState(false);
   const [isDownloadingBatch, setIsDownloadingBatch] = useState(false);
+  const [isExportingDocx, setIsExportingDocx] = useState(false); 
   const [hoveredSide, setHoveredSide] = useState<'classic' | 'modern' | null>(null);
 
-  // --- NEW STATES FOR FEATURES ---
   const [library, setLibrary] = useState<LibraryItem[]>([]);
   const [isPaused, setIsPaused] = useState(false);
-  const pausedRef = useRef(false); // Ref for immediate loop control
+  const pausedRef = useRef(false); 
+
+  // Lightbox State
+  const [lightboxImage, setLightboxImage] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Initialize Library (Async)
+  // Initialize Library
   useEffect(() => {
     const initLib = async () => {
         try {
@@ -66,20 +73,6 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
-    const loaded = initApiKey();
-    if (loaded) {
-        setHasApiKey(true);
-    }
-    const checkAIStudioKey = async () => {
-      try {
-        const keyExists = await (window as any).aistudio.hasSelectedApiKey();
-        if (keyExists) setHasApiKey(true);
-      } catch (e) { }
-    };
-    checkAIStudioKey();
-  }, []);
-
-  useEffect(() => {
     const interval = setInterval(() => {
         const now = Date.now();
         setRequestHistory(prev => prev.filter(t => now - t < 60000));
@@ -93,34 +86,54 @@ const App: React.FC = () => {
     setSessionTotalRequests(prev => prev + 1);
   };
 
-  useEffect(() => {
-    if (mode === AppMode.CLASSIC && !inputText) setInputText('');
-    if (mode === AppMode.MODERN && !inputText) setInputText('');
-  }, [mode]);
-
   const toggleLanguage = () => {
     setLanguage(prev => prev === Language.ZH ? Language.EN : Language.ZH);
   };
 
-  const handleSaveApiKey = () => {
-    if (apiKeyInput.trim()) {
-      setApiKey(apiKeyInput.trim(), rememberKey);
-      setHasApiKey(true);
-      setShowApiKeyModal(false);
-      setApiKeyInput('');
-    }
+  // --- SETTINGS HANDLERS ---
+  const handleOpenSettings = () => {
+    setEditingSettings(settings); // Load current into edit state
+    setShowSettingsModal(true);
+  };
+
+  const handleSaveSettings = () => {
+    setSettings(editingSettings);
+    saveSettings(editingSettings);
+    setShowSettingsModal(false);
+  };
+
+  const hasValidKey = () => {
+     // Check if current provider has a key
+     if (settings.textProvider === 'gemini') return !!settings.textApiKey;
+     if (settings.textProvider === 'openai' || settings.textProvider === 'custom') return !!settings.textApiKey;
+     return false;
   };
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const text = e.target?.result as string;
-      setInputText(text);
-    };
-    reader.readAsText(file);
+    if (file.name.toLowerCase().endsWith('.docx')) {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        const arrayBuffer = e.target?.result as ArrayBuffer;
+        try {
+          const result = await mammoth.extractRawText({ arrayBuffer });
+          setInputText(result.value);
+        } catch (error) {
+          console.error("Docx parse error", error);
+          alert(isModern ? "Failed to parse DOCX file." : "解析 DOCX 文件失败。");
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    } else {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const text = e.target?.result as string;
+        setInputText(text);
+      };
+      reader.readAsText(file);
+    }
   };
 
   const updateResult = (id: string, updates: Partial<GeneratedResult>) => {
@@ -144,35 +157,31 @@ const App: React.FC = () => {
       }
   };
 
-  // Toggle Pause
   const togglePause = () => {
     const nextState = !isPaused;
     setIsPaused(nextState);
     pausedRef.current = nextState;
   };
 
-  // Load Session Logic
   const handleLoadSession = (session: SavedSession) => {
-    // Confirm if overwriting existing work
     if (results.length > 0 && appState === AppState.PROCESSING) {
         if (!window.confirm("A queue is currently processing. Stop and load saved session?")) return;
     }
-    
     setResults(session.results);
     setMode(session.mode);
     setAppState(AppState.IDLE);
-    // Reset pause
     setIsPaused(false);
     pausedRef.current = false;
   };
 
+  // --- GENERATION LOGIC ---
   const handleAnalyzeAndGenerate = useCallback(async () => {
     if (!inputText.trim() || !mode) return;
 
-    if (isHD && !hasApiKey) {
+    if (isHD && !hasValidKey()) {
       const confirmed = window.confirm(t.alertHDConfirm);
       if (confirmed) {
-         setShowApiKeyModal(true);
+         setShowSettingsModal(true);
          return;
       } else {
         setIsHD(false); 
@@ -181,8 +190,6 @@ const App: React.FC = () => {
 
     setAppState(AppState.PROCESSING);
     setErrorMsg(null);
-
-    // Auto-clear results for new generation
     setResults([]);
 
     const chunks = chunkText(inputText);
@@ -194,13 +201,12 @@ const App: React.FC = () => {
       imageUrl: null
     }));
 
-    setResults(newItems); // Set directly instead of appending
+    setResults(newItems);
 
     const processQueue = async () => {
         let quotaExceeded = false;
 
         for (const item of newItems) {
-            // Check Pause State
             while (pausedRef.current) {
                 await new Promise(resolve => setTimeout(resolve, 500));
             }
@@ -234,21 +240,22 @@ const App: React.FC = () => {
 
     processQueue();
 
-  }, [inputText, isHD, hasApiKey, mode, language]);
+  }, [inputText, isHD, mode, language, settings]); // Added settings dependency
 
   const processSingleItem = async (id: string, source: string, mode: AppMode): Promise<any | null> => {
     try {
         updateResult(id, { status: ResultStatus.ANALYZING });
         trackRequest();
         
-        const concept = await analyzeSingleChunk(source, mode, language);
+        const concept = await analyzeSingleChunk(source, mode, language, settings);
         if (!concept) throw new Error("Concept analysis returned null");
 
         updateResult(id, { status: ResultStatus.GENERATING, concept });
         trackRequest();
         
-        const currentBatchIsHD = isHD && hasApiKey;
-        const base64Image = await generateConceptImage(concept.visualPrompt, mode, currentBatchIsHD);
+        // Check if user wants HD. 
+        // Note: For custom providers, HD flag just changes model string if configured, otherwise handled in service.
+        const base64Image = await generateConceptImage(concept.visualPrompt, mode, settings, isHD);
 
         updateResult(id, { status: ResultStatus.SUCCESS, imageUrl: base64Image });
         return null;
@@ -263,13 +270,10 @@ const App: React.FC = () => {
 
   const handleRetryGeneration = async (id: string, visualPrompt: string | undefined, cardMode: AppMode) => {
     if (!visualPrompt) return;
-    const currentBatchIsHD = isHD && hasApiKey;
-    
     updateResult(id, { status: ResultStatus.GENERATING, error: undefined });
-
     try {
         trackRequest();
-        const base64Image = await generateConceptImage(visualPrompt, cardMode, currentBatchIsHD);
+        const base64Image = await generateConceptImage(visualPrompt, cardMode, settings, isHD);
         updateResult(id, { status: ResultStatus.SUCCESS, imageUrl: base64Image });
     } catch (err: any) {
         updateResult(id, { status: ResultStatus.ERROR, error: "Retry failed" });
@@ -280,6 +284,7 @@ const App: React.FC = () => {
     setResults(prev => prev.filter(item => item.id !== id));
   };
 
+  // --- EXPORT HANDLERS ---
   const handleBatchDownload = async () => {
     if (results.length === 0) return;
     setIsDownloadingBatch(true);
@@ -314,16 +319,140 @@ const App: React.FC = () => {
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
         FileSaver.saveAs(content, `PhiloFlow_Export_${timestamp}.zip`);
       } else {
-        alert("暂无已完成的图例可供下载。");
+        alert("No completed images to download.");
       }
     } catch (error) {
-      alert("批量下载失败。");
+      alert("Batch download failed.");
     } finally {
       setIsDownloadingBatch(false);
     }
   };
 
-  // --- LANDING SCREEN ---
+  const base64DataURLToUint8Array = (dataURL: string) => {
+    const base64String = dataURL.split(',')[1];
+    const binaryString = window.atob(base64String);
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes;
+  };
+
+  const handleDocxExport = async () => {
+    const successResults = results.filter(r => r.status === ResultStatus.SUCCESS && r.imageUrl && r.concept);
+    if (successResults.length === 0) {
+        alert(isModern ? "No completed items to export." : "没有可导出的完成项。");
+        return;
+    }
+
+    setIsExportingDocx(true);
+
+    try {
+        const docChildren: any[] = [];
+        
+        docChildren.push(
+            new Paragraph({
+                text: "PhiloFlow Report",
+                heading: HeadingLevel.TITLE,
+                alignment: AlignmentType.CENTER,
+                spacing: { after: 400 }
+            })
+        );
+
+        successResults.forEach((res, index) => {
+            const concept = res.concept!;
+
+            // 1. Source Text
+            docChildren.push(
+                new Paragraph({
+                    text: `#${index + 1}: ${concept.conceptTitle || "Untitled"}`,
+                    heading: HeadingLevel.HEADING_2,
+                    spacing: { before: 200, after: 100 }
+                }),
+                new Paragraph({
+                    text: isModern ? "Source Text" : "【原文】",
+                    heading: HeadingLevel.HEADING_3,
+                    spacing: { after: 50 }
+                }),
+                new Paragraph({
+                    children: [
+                        new TextRun({
+                            text: res.sourceText,
+                            italics: true,
+                        })
+                    ],
+                    spacing: { after: 200 },
+                    border: {
+                        left: {
+                            color: "auto",
+                            space: 10,
+                            style: BorderStyle.SINGLE,
+                            size: 6,
+                        },
+                    },
+                    indent: { left: 720 }
+                })
+            );
+
+            // 2. Explanation
+            docChildren.push(
+                new Paragraph({
+                    text: isModern ? "Analysis" : "【注疏解析】",
+                    heading: HeadingLevel.HEADING_3,
+                    spacing: { after: 50 }
+                }),
+                new Paragraph({
+                    children: [
+                        new TextRun({
+                            text: concept.explanation,
+                        })
+                    ],
+                    spacing: { after: 200 }
+                })
+            );
+
+            // 3. Image
+            if (res.imageUrl) {
+                const imageBuffer = base64DataURLToUint8Array(res.imageUrl);
+                docChildren.push(
+                    new Paragraph({
+                        alignment: AlignmentType.CENTER,
+                        children: [
+                            new ImageRun({
+                                data: imageBuffer,
+                                transformation: {
+                                    width: 500,
+                                    height: 281, 
+                                },
+                            }),
+                        ],
+                        spacing: { before: 200, after: 400 }
+                    })
+                );
+            }
+        });
+
+        const doc = new Document({
+            sections: [{
+                properties: {},
+                children: docChildren,
+            }],
+        });
+
+        const blob = await Packer.toBlob(doc);
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        FileSaver.saveAs(blob, `PhiloFlow_Report_${timestamp}.docx`);
+
+    } catch (error) {
+        console.error("Docx export failed", error);
+        alert("Export failed.");
+    } finally {
+        setIsExportingDocx(false);
+    }
+  };
+
+  // --- RENDER ---
   if (!mode) {
     const splitPercent = hoveredSide === 'classic' ? 70 : hoveredSide === 'modern' ? 30 : 50;
     const transitionStyle = { transition: 'width 700ms cubic-bezier(0.25, 1, 0.5, 1), left 700ms cubic-bezier(0.25, 1, 0.5, 1)' };
@@ -374,7 +503,6 @@ const App: React.FC = () => {
     );
   }
 
-  // --- MAIN APP (3-Column Layout) ---
   const isModern = mode === AppMode.MODERN;
   const themeClasses = isModern ? "bg-white text-modern-text font-modern bg-dot-grid modern-scroll" : "bg-paper-50 text-ink-800 font-serif bg-paper-texture classic-scroll";
   const currentRPM = requestHistory.length;
@@ -413,9 +541,9 @@ const App: React.FC = () => {
                 </div>
              </div>
 
-             <button onClick={() => setShowApiKeyModal(true)} className={`text-xs px-3 py-1.5 rounded border transition-colors flex items-center gap-2 ${hasApiKey ? (isModern ? 'bg-green-50 text-green-600 border-green-200' : 'bg-green-50 text-green-700 border-green-200 font-serif') : (isModern ? 'bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100' : 'bg-paper-200 text-ink-600 border-ink-300 hover:bg-paper-300 font-serif')}`}>
-                <div className={`w-2 h-2 rounded-full ${hasApiKey ? 'bg-green-500' : 'bg-gray-400'}`}></div>
-                {hasApiKey ? (hasUserApiKey() ? t.headerUserKey : t.headerSessionKey) : t.headerSetKey}
+             <button onClick={handleOpenSettings} className={`text-xs px-3 py-1.5 rounded border transition-colors flex items-center gap-2 ${hasValidKey() ? (isModern ? 'bg-green-50 text-green-600 border-green-200' : 'bg-green-50 text-green-700 border-green-200 font-serif') : (isModern ? 'bg-gray-50 text-gray-500 border-gray-200 hover:bg-gray-100' : 'bg-paper-200 text-ink-600 border-ink-300 hover:bg-paper-300 font-serif')}`}>
+                <div className={`w-2 h-2 rounded-full ${hasValidKey() ? 'bg-green-500' : 'bg-gray-400'}`}></div>
+                {hasValidKey() ? t.headerUserKey : t.headerSetKey}
              </button>
 
              <div className={`flex items-center gap-2 p-1 rounded border ${isModern ? 'bg-gray-50 border-gray-200' : 'bg-paper-200/50 border-paper-300'}`}>
@@ -428,7 +556,7 @@ const App: React.FC = () => {
 
       {/* BODY GRID */}
       <div className="flex-grow flex overflow-hidden">
-         {/* LEFT SIDEBAR (Library) */}
+         {/* LEFT SIDEBAR */}
          <SidebarLeft 
             mode={mode} 
             lang={language} 
@@ -437,7 +565,7 @@ const App: React.FC = () => {
             onRefreshLibrary={refreshLibrary} 
          />
 
-         {/* MAIN CONTENT (Center) */}
+         {/* MAIN CONTENT */}
          <main className="flex-grow overflow-y-auto px-6 py-10 custom-scrollbar relative">
              <div className="max-w-4xl mx-auto">
                  {/* Input Area */}
@@ -446,7 +574,7 @@ const App: React.FC = () => {
                         <div className="flex justify-between items-center mb-6">
                             <label className={`block text-xs font-bold uppercase tracking-[0.2em] ${isModern ? 'text-gray-400 font-modern' : 'text-cinnabar-700 font-serif'}`}>{isModern ? t.inputLabelModern : t.inputLabelClassic}</label>
                             <div className="relative">
-                                <input type="file" accept=".txt,.md" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
+                                <input type="file" accept=".txt,.md,.docx" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
                                 <Button variant={isModern ? "modern-secondary" : "ghost"} onClick={() => fileInputRef.current?.click()} className="text-xs py-1 px-3" mode={mode}>{isModern ? t.importFileModern : t.importFile}</Button>
                             </div>
                         </div>
@@ -481,9 +609,7 @@ const App: React.FC = () => {
                             <h3 className={`text-xl font-bold tracking-widest flex items-center gap-2 ${isModern ? 'text-gray-800 font-modern' : 'text-ink-900 font-serif'}`}>
                                 <span className={isModern ? 'text-modern-accent' : 'text-cinnabar-700'}>●</span> {isModern ? t.resultsTitleModern : t.resultsTitleClassic} <span className={`text-sm ml-2 opacity-50`}>({results.length})</span>
                             </h3>
-                            <Button variant="ghost" onClick={handleBatchDownload} isLoading={isDownloadingBatch} disabled={isDownloadingBatch || !results.some(r => r.status === ResultStatus.SUCCESS)} className={`text-xs ${isModern ? 'text-modern-accent hover:text-modern-hover' : ''}`} mode={mode}>
-                                {isDownloadingBatch ? (isModern ? t.downloadingModern : t.downloading) : (isModern ? t.downloadBatchModern : t.downloadBatch)}
-                            </Button>
+                            {/* Buttons moved to Sidebar */}
                         </div>
                     )}
                     <div className="flex flex-col gap-16 pb-20">
@@ -494,6 +620,7 @@ const App: React.FC = () => {
                             onDelete={() => handleDeleteResult(result.id)}
                             onRetry={() => handleRetryGeneration(result.id, result.concept?.visualPrompt, result.mode)}
                             onUpdatePrompt={(newPrompt) => handleUpdatePrompt(result.id, newPrompt)}
+                            onImageClick={(url) => setLightboxImage(url)}
                             lang={language}
                             />
                         ))}
@@ -509,7 +636,7 @@ const App: React.FC = () => {
              </div>
          </main>
 
-         {/* RIGHT SIDEBAR (Console) */}
+         {/* RIGHT SIDEBAR */}
          <SidebarRight 
             mode={mode}
             lang={language}
@@ -519,23 +646,134 @@ const App: React.FC = () => {
             onClearResults={handleClearResults}
             library={library}
             onRefreshLibrary={refreshLibrary}
+            onDownloadDocx={handleDocxExport}
+            onDownloadZip={handleBatchDownload}
+            isDownloadingDocx={isExportingDocx}
+            isDownloadingZip={isDownloadingBatch}
          />
       </div>
 
-      {/* API Key Modal */}
-      {showApiKeyModal && (
+      {/* Lightbox Overlay */}
+      {lightboxImage && (
+        <ImageLightbox src={lightboxImage} onClose={() => setLightboxImage(null)} />
+      )}
+
+      {/* Settings Modal */}
+      {showSettingsModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-            <div className={`w-full max-w-md p-8 rounded-lg shadow-2xl ${isModern ? 'bg-white font-modern' : 'bg-paper-50 font-serif border-2 border-ink-200'}`}>
+            <div className={`w-full max-w-2xl p-8 rounded-lg shadow-2xl overflow-y-auto max-h-[90vh] ${isModern ? 'bg-white font-modern' : 'bg-paper-50 font-serif border-2 border-ink-200'}`}>
                 <h3 className={`text-xl font-bold mb-4 ${isModern ? 'text-gray-900' : 'text-ink-900'}`}>{t.modalTitle}</h3>
-                <p className={`text-sm mb-4 ${isModern ? 'text-gray-500' : 'text-ink-600'}`}>{t.modalDesc}<br/><a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noreferrer" className="text-blue-500 underline">{t.modalGetKey}</a></p>
-                <input type="password" placeholder={t.modalPlaceholder} value={apiKeyInput} onChange={(e) => setApiKeyInput(e.target.value)} className={`w-full p-3 mb-4 border rounded outline-none focus:ring-2 ${isModern ? 'border-gray-300 focus:ring-blue-100' : 'bg-paper-100 border-ink-300 focus:ring-cinnabar-700/20'}`} />
-                <div className="flex items-center gap-2 mb-6">
-                    <input type="checkbox" id="rememberKey" checked={rememberKey} onChange={(e) => setRememberKey(e.target.checked)} className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
-                    <label htmlFor="rememberKey" className={`text-sm cursor-pointer select-none ${isModern ? 'text-gray-600' : 'text-ink-700'}`}>{t.modalRemember}</label>
+                <p className={`text-sm mb-6 ${isModern ? 'text-gray-500' : 'text-ink-600'}`}>{t.modalDesc}</p>
+
+                {/* TEXT SETTINGS */}
+                <div className="mb-8 p-4 rounded bg-gray-50/50 border border-gray-100">
+                    <h4 className="font-bold text-sm mb-4 uppercase tracking-wider text-gray-400">Text Generation</h4>
+                    
+                    <div className="grid grid-cols-2 gap-4 mb-4">
+                        <div>
+                            <label className="block text-xs font-bold mb-1">{t.settingsLabelProvider}</label>
+                            <select 
+                                value={editingSettings.textProvider}
+                                onChange={(e) => setEditingSettings({...editingSettings, textProvider: e.target.value as AIProvider})}
+                                className="w-full p-2 text-sm border rounded"
+                            >
+                                <option value="gemini">{t.settingsTabGemini}</option>
+                                <option value="openai">OpenAI Compatible (Custom)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold mb-1">{t.settingsLabelModel}</label>
+                            <input 
+                                type="text" 
+                                value={editingSettings.textModel}
+                                onChange={(e) => setEditingSettings({...editingSettings, textModel: e.target.value})}
+                                placeholder={TEXT_MODEL}
+                                className="w-full p-2 text-sm border rounded"
+                            />
+                        </div>
+                    </div>
+
+                    {editingSettings.textProvider !== 'gemini' && (
+                        <div className="mb-4">
+                             <label className="block text-xs font-bold mb-1">{t.settingsLabelBaseUrl}</label>
+                             <input 
+                                type="text"
+                                value={editingSettings.textBaseUrl || ''}
+                                onChange={(e) => setEditingSettings({...editingSettings, textBaseUrl: e.target.value})}
+                                placeholder="https://api.openai.com/v1"
+                                className="w-full p-2 text-sm border rounded mb-1"
+                             />
+                             <p className="text-[10px] text-gray-400">{t.settingsHintCustom}</p>
+                        </div>
+                    )}
+
+                    <div>
+                        <label className="block text-xs font-bold mb-1">{t.settingsLabelKey}</label>
+                        <input 
+                            type="password"
+                            value={editingSettings.textApiKey || ''}
+                            onChange={(e) => setEditingSettings({...editingSettings, textApiKey: e.target.value})}
+                            placeholder={t.modalPlaceholder}
+                            className="w-full p-2 text-sm border rounded"
+                        />
+                    </div>
                 </div>
-                <div className="flex justify-end gap-3">
-                    <button onClick={() => setShowApiKeyModal(false)} className={`px-4 py-2 text-sm ${isModern ? 'text-gray-500 hover:bg-gray-100 rounded' : 'text-ink-600 hover:text-cinnabar-700'}`}>{t.modalCancel}</button>
-                    <button onClick={handleSaveApiKey} disabled={!apiKeyInput.trim()} className={`px-6 py-2 text-sm font-bold text-white rounded transition-colors ${isModern ? 'bg-modern-accent hover:bg-modern-hover disabled:opacity-50' : 'bg-cinnabar-700 hover:bg-cinnabar-900 disabled:opacity-50'}`}>{t.modalSave}</button>
+
+                {/* IMAGE SETTINGS */}
+                <div className="mb-6 p-4 rounded bg-gray-50/50 border border-gray-100">
+                    <h4 className="font-bold text-sm mb-4 uppercase tracking-wider text-gray-400">Image Generation</h4>
+                    
+                    <div className="grid grid-cols-2 gap-4 mb-4">
+                         <div>
+                            <label className="block text-xs font-bold mb-1">{t.settingsLabelProvider}</label>
+                            <select 
+                                value={editingSettings.imageProvider}
+                                onChange={(e) => setEditingSettings({...editingSettings, imageProvider: e.target.value as AIProvider})}
+                                className="w-full p-2 text-sm border rounded"
+                            >
+                                <option value="gemini">{t.settingsTabGemini}</option>
+                                <option value="openai">OpenAI Compatible (DALL-E)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold mb-1">{t.settingsLabelModel}</label>
+                            <input 
+                                type="text" 
+                                value={editingSettings.imageModel}
+                                onChange={(e) => setEditingSettings({...editingSettings, imageModel: e.target.value})}
+                                placeholder={IMAGE_MODEL_SD}
+                                className="w-full p-2 text-sm border rounded"
+                            />
+                        </div>
+                    </div>
+                     {editingSettings.imageProvider !== 'gemini' && (
+                        <div className="mb-4">
+                             <label className="block text-xs font-bold mb-1">{t.settingsLabelBaseUrl}</label>
+                             <input 
+                                type="text"
+                                value={editingSettings.imageBaseUrl || ''}
+                                onChange={(e) => setEditingSettings({...editingSettings, imageBaseUrl: e.target.value})}
+                                placeholder="https://api.openai.com/v1"
+                                className="w-full p-2 text-sm border rounded"
+                             />
+                        </div>
+                    )}
+
+                     <div>
+                        <label className="block text-xs font-bold mb-1">{t.settingsLabelKey}</label>
+                        <input 
+                            type="password"
+                            value={editingSettings.imageApiKey || ''}
+                            onChange={(e) => setEditingSettings({...editingSettings, imageApiKey: e.target.value})}
+                            placeholder={t.modalPlaceholder}
+                            className="w-full p-2 text-sm border rounded"
+                        />
+                    </div>
+                </div>
+
+                <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
+                    <button onClick={() => setShowSettingsModal(false)} className={`px-4 py-2 text-sm ${isModern ? 'text-gray-500 hover:bg-gray-100 rounded' : 'text-ink-600 hover:text-cinnabar-700'}`}>{t.modalCancel}</button>
+                    <button onClick={handleSaveSettings} className={`px-6 py-2 text-sm font-bold text-white rounded transition-colors ${isModern ? 'bg-modern-accent hover:bg-modern-hover' : 'bg-cinnabar-700 hover:bg-cinnabar-900'}`}>{t.modalSave}</button>
                 </div>
             </div>
         </div>

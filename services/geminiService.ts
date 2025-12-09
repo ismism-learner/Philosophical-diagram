@@ -9,7 +9,7 @@ import {
   SYSTEM_INSTRUCTION_MODERN_ZH,
   SYSTEM_INSTRUCTION_MODERN_EN
 } from "../constants";
-import { VisualConcept, AppMode, Language } from "../types";
+import { VisualConcept, AppMode, Language, AISettings } from "../types";
 
 // Helper to determine if an error corresponds to a rate limit or temporary server issue
 function isRetryableError(error: any): boolean {
@@ -32,26 +32,95 @@ function isRetryableError(error: any): boolean {
   return false;
 }
 
-/**
- * Helper: Splits text strictly by newlines as requested.
- * Filters out empty lines.
- */
 export function chunkText(text: string): string[] {
-  // Normalize newlines and split
   const lines = text.replace(/\r\n/g, '\n').split('\n');
-  // Filter out empty lines or whitespace-only lines
   return lines.filter(line => line.trim().length > 0);
 }
 
-/**
- * Step 1: Analyze a single chunk of text.
- * Returns the concept or null if failed.
- * Includes retry logic for rate limits.
- */
-export const analyzeSingleChunk = async (chunk: string, mode: AppMode, language: Language, retryCount = 0): Promise<VisualConcept | null> => {
-  const ai = new GoogleGenAI({ apiKey: getApiKey() || process.env.API_KEY });
+// --- OPENAI COMPATIBLE FETCH HELPERS ---
+
+async function fetchOpenAIChat(
+  apiKey: string, 
+  baseUrl: string, 
+  model: string, 
+  prompt: string, 
+  systemInstruction: string
+): Promise<VisualConcept> {
+  const url = `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`
+    },
+    body: JSON.stringify({
+      model: model,
+      messages: [
+        { role: 'system', content: systemInstruction + "\nRespond in strict JSON format." },
+        { role: 'user', content: prompt }
+      ],
+      response_format: { type: "json_object" }
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(`OpenAI API Error: ${response.status} ${response.statusText}`);
+  }
+
+  const data = await response.json();
+  const content = data.choices?.[0]?.message?.content;
+  if (!content) throw new Error("No content in response");
   
-  // Select the appropriate instruction based on mode and language
+  return JSON.parse(content) as VisualConcept;
+}
+
+async function fetchOpenAIImage(
+  apiKey: string, 
+  baseUrl: string, 
+  model: string, 
+  prompt: string
+): Promise<string> {
+  const url = `${baseUrl.replace(/\/+$/, '')}/images/generations`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`
+    },
+    body: JSON.stringify({
+      model: model,
+      prompt: prompt,
+      n: 1,
+      size: "1024x1024",
+      response_format: "b64_json"
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(`OpenAI Image API Error: ${response.status} ${response.statusText}`);
+  }
+
+  const data = await response.json();
+  const b64 = data.data?.[0]?.b64_json;
+  if (!b64) throw new Error("No image data in response");
+  
+  return `data:image/png;base64,${b64}`;
+}
+
+
+// --- MAIN SERVICE FUNCTIONS ---
+
+/**
+ * Step 1: Analyze text using configured provider
+ */
+export const analyzeSingleChunk = async (
+  chunk: string, 
+  mode: AppMode, 
+  language: Language, 
+  settings: AISettings,
+  retryCount = 0
+): Promise<VisualConcept | null> => {
+  
   let systemInstruction = "";
   if (mode === AppMode.CLASSIC) {
     systemInstruction = language === Language.ZH ? SYSTEM_INSTRUCTION_CLASSIC_ZH : SYSTEM_INSTRUCTION_CLASSIC_EN;
@@ -60,16 +129,28 @@ export const analyzeSingleChunk = async (chunk: string, mode: AppMode, language:
   }
 
   try {
+    // 1. Custom / OpenAI Provider
+    if (settings.textProvider === 'custom' || settings.textProvider === 'openai') {
+        const key = settings.textApiKey || "";
+        const url = settings.textBaseUrl || "https://api.openai.com/v1";
+        const model = settings.textModel || "gpt-3.5-turbo";
+        return await fetchOpenAIChat(key, url, model, chunk, systemInstruction);
+    }
+
+    // 2. Default Gemini Provider
+    const ai = new GoogleGenAI({ apiKey: settings.textApiKey || process.env.API_KEY || "" });
+    const model = settings.textModel || TEXT_MODEL;
+
     const response = await ai.models.generateContent({
-      model: TEXT_MODEL,
+      model: model,
       contents: {
-        parts: [{ text: chunk }] // Analyze this specific line/paragraph
+        parts: [{ text: chunk }] 
       },
       config: {
         systemInstruction: systemInstruction,
         responseMimeType: "application/json",
         responseSchema: {
-          type: Type.OBJECT, // Expecting a single object for single chunk
+          type: Type.OBJECT, 
           properties: {
             conceptTitle: { type: Type.STRING },
             explanation: { type: Type.STRING },
@@ -82,56 +163,66 @@ export const analyzeSingleChunk = async (chunk: string, mode: AppMode, language:
 
     const jsonText = response.text;
     if (!jsonText) return null;
-    
     return JSON.parse(jsonText) as VisualConcept;
+
   } catch (error: any) {
-    
-    // Retry on rate limit or internal server error
     if (isRetryableError(error)) {
-        // Infinite retry strategy for 429s (wait and try again)
-        // Backoff: 5s, 10s, 20s... max 60s
         const backoff = Math.min(Math.pow(2, retryCount) * 5000, 60000);
-        console.warn(`Text analysis rate limited (429). Waiting ${backoff}ms...`, error);
+        console.warn(`Text analysis rate limited. Waiting ${backoff}ms...`, error);
         await new Promise(resolve => setTimeout(resolve, backoff));
-        return analyzeSingleChunk(chunk, mode, language, retryCount + 1);
+        return analyzeSingleChunk(chunk, mode, language, settings, retryCount + 1);
     }
-    
     console.warn(`Analysis failed for chunk: "${chunk.substring(0, 20)}..."`, error);
     throw error;
   }
 };
 
 /**
- * Step 2: Generate an image. Prepend style keywords based on mode.
+ * Step 2: Generate image using configured provider
  */
 export const generateConceptImage = async (
   basePrompt: string, 
   mode: AppMode,
+  settings: AISettings,
   isHD: boolean = false, 
   retryCount = 0
 ): Promise<string> => {
-  // Re-instantiate to ensure we pick up the latest API key from window/env if changed
-  const ai = new GoogleGenAI({ apiKey: getApiKey() || process.env.API_KEY });
-
-  const model = isHD ? IMAGE_MODEL_HD : IMAGE_MODEL_SD;
   
-  // Enforce style via prompt injection
-  // UPDATE: Classic mode now uses "Minimalist hand-drawn" instead of "Da Vinci/Intricate"
   const stylePrefix = mode === AppMode.CLASSIC
     ? "Minimalist hand-drawn illustration, simple ink lines on parchment, woodblock print style, clean layout, no shading, schematic sketch: "
     : "Minimalist technical diagram, vector art, clean white background, black lines, high contrast, schematic representation, professional: ";
 
   const finalPrompt = stylePrefix + basePrompt;
 
-  const imageConfig: any = {
-      aspectRatio: "16:9",
-  };
-
-  if (isHD) {
-      imageConfig.imageSize = "2K";
-  }
-
   try {
+     // 1. Custom / OpenAI Provider
+     if (settings.imageProvider === 'custom' || settings.imageProvider === 'openai') {
+        const key = settings.imageApiKey || "";
+        const url = settings.imageBaseUrl || "https://api.openai.com/v1";
+        const model = settings.imageModel || "dall-e-3";
+        return await fetchOpenAIImage(key, url, model, finalPrompt);
+    }
+
+    // 2. Default Gemini Provider
+    // Re-instantiate to use latest key
+    const ai = new GoogleGenAI({ apiKey: settings.imageApiKey || process.env.API_KEY || "" });
+    
+    // Determine model. If user manually set a model name in settings (and it's not the default), use it.
+    // Otherwise switch between SD/HD constants.
+    let model = settings.imageModel;
+    if (!model || model === IMAGE_MODEL_SD || model === IMAGE_MODEL_HD) {
+        model = isHD ? IMAGE_MODEL_HD : IMAGE_MODEL_SD;
+    }
+
+    const imageConfig: any = {
+      aspectRatio: "16:9",
+    };
+
+    // Only apply imageSize for the Pro model or if user explicitly wants HD
+    if (isHD || model.includes("pro")) {
+      imageConfig.imageSize = "2K";
+    }
+
     const response = await ai.models.generateContent({
       model: model,
       contents: {
@@ -143,70 +234,53 @@ export const generateConceptImage = async (
     });
 
     const candidates = response.candidates;
-    if (!candidates || candidates.length === 0) {
-        throw new Error("No candidates returned");
-    }
+    if (!candidates || candidates.length === 0) throw new Error("No candidates returned");
 
     const parts = candidates[0].content.parts;
     for (const part of parts) {
       if (part.inlineData) {
         return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
       }
-      // Check if there's text rejection (e.g. safety)
-      if (part.text) {
-        console.warn("Model returned text instead of image:", part.text);
-      }
     }
-
     throw new Error("No image data found in response");
+
   } catch (error: any) {
-    // Retry on rate limit or internal server error
     if (isRetryableError(error)) {
-      // Infinite retry strategy for 429s
       const backoff = Math.min(Math.pow(2, retryCount) * 5000, 60000);
-      console.warn(`Image generation rate limited (429). Waiting ${backoff}ms...`, error);
+      console.warn(`Image generation rate limited. Waiting ${backoff}ms...`, error);
       await new Promise(resolve => setTimeout(resolve, backoff));
-      return generateConceptImage(basePrompt, mode, isHD, retryCount + 1);
+      return generateConceptImage(basePrompt, mode, settings, isHD, retryCount + 1);
     }
     console.error("Image generation failed:", error);
     throw error;
   }
 };
 
-// --- Dynamic API Key Management ---
-let _dynamicApiKey: string | null = null;
-const STORAGE_KEY = 'philo_flow_gemini_key';
+// --- SETTINGS MANAGEMENT ---
+const SETTINGS_KEY = 'philo_flow_settings_v2';
 
-export const setApiKey = (key: string, persist: boolean = false) => {
-  _dynamicApiKey = key;
-  // Fallback for libraries that strictly look at process.env
-  if (typeof process !== 'undefined' && process.env) {
-    process.env.API_KEY = key;
-  }
-
-  if (persist) {
-    localStorage.setItem(STORAGE_KEY, key);
-  } else {
-    localStorage.removeItem(STORAGE_KEY);
-  }
-};
-
-export const initApiKey = () => {
-  const savedKey = localStorage.getItem(STORAGE_KEY);
-  if (savedKey) {
-    _dynamicApiKey = savedKey;
-    if (typeof process !== 'undefined' && process.env) {
-      process.env.API_KEY = savedKey;
+export const saveSettings = (settings: AISettings) => {
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    // Backwards compatibility for single key
+    if (settings.textProvider === 'gemini' && settings.textApiKey) {
+        process.env.API_KEY = settings.textApiKey;
     }
-    return true;
-  }
-  return false;
 };
 
-export const getApiKey = () => {
-  return _dynamicApiKey || process.env.API_KEY;
-};
-
-export const hasUserApiKey = () => {
-  return !!_dynamicApiKey;
+export const loadSettings = (): AISettings => {
+    const saved = localStorage.getItem(SETTINGS_KEY);
+    if (saved) {
+        try {
+            return JSON.parse(saved);
+        } catch (e) { console.error("Failed to parse settings", e); }
+    }
+    // Default
+    return {
+        textProvider: 'gemini',
+        textModel: TEXT_MODEL,
+        textApiKey: process.env.API_KEY || '',
+        imageProvider: 'gemini',
+        imageModel: IMAGE_MODEL_SD,
+        imageApiKey: process.env.API_KEY || ''
+    };
 };

@@ -1,5 +1,6 @@
 
 
+
 export const TEXT_MODEL = 'gemini-2.5-flash';
 export const IMAGE_MODEL_SD = 'gemini-2.5-flash-image'; // Nano Banana
 export const IMAGE_MODEL_HD = 'gemini-3-pro-image-preview'; // Nano Banana Pro
@@ -18,14 +19,14 @@ export const UI_TEXT = {
     headerMonitorHighLoad: "高负载",
     headerUserKey: "用户 Key (本地)",
     headerSessionKey: "会话 Key",
-    headerSetKey: "设置 Key",
+    headerSetKey: "设置 / Key",
     headerQualitySD: "标准",
     headerQualityHD: "精绘",
 
     // Input
     inputLabelClassic: "✦ 文本 / 视频文稿输入",
     inputLabelModern: "Input Source",
-    importFile: "上传文稿 (.md/.txt)",
+    importFile: "上传文稿 (.md/.txt/.docx)",
     importFileModern: "Import File",
     clear: "清空",
     clearModern: "Clear",
@@ -54,10 +55,14 @@ export const UI_TEXT = {
     // Results
     resultsTitleClassic: "已成图卷",
     resultsTitleModern: "Generated Assets",
-    downloadBatch: "下载已完成图例 (ZIP)",
-    downloadBatchModern: "Download All (ZIP)",
-    downloading: "装订中...",
+    downloadBatch: "图集 (ZIP)",
+    downloadBatchModern: "Images (ZIP)",
+    downloadDocx: "文稿 (DOCX)",
+    downloadDocxModern: "Report (DOCX)",
+    downloading: "打包...",
     downloadingModern: "Zipping...",
+    exporting: "导出...",
+    exportingModern: "Exporting...",
     emptyStateClassic: "请于上方输入文本，以开启图解之旅",
     emptyStateModern: "Input text to generate diagrams.",
 
@@ -94,19 +99,27 @@ export const UI_TEXT = {
     statusNoVisual: "图卷缺失",
     statusNoVisualModern: "NO VISUAL",
     
-    // API Modal
-    modalTitle: "API Key 设置",
-    modalDesc: "使用您自己的 API Key 可以获得更稳定的体验，并避免公共配额限制。",
+    // API Modal & Settings
+    modalTitle: "系统设置 & API Key",
+    modalDesc: "配置模型服务商。推荐使用 Gemini 以获得最佳体验。",
     modalGetKey: "获取 Gemini API Key",
-    modalPlaceholder: "AIzaSy...",
-    modalRemember: "在此设备上记住我 (Local Storage)",
+    modalPlaceholder: "sk-...",
+    modalRemember: "在此设备上记住配置 (Local Storage)",
     modalCancel: "取消",
     modalSave: "确认保存",
+    
+    settingsTabGemini: "Gemini (推荐)",
+    settingsTabCustom: "自定义 / 其他厂商",
+    settingsLabelProvider: "服务商",
+    settingsLabelBaseUrl: "API Base URL",
+    settingsLabelModel: "模型名称",
+    settingsLabelKey: "API Key",
+    settingsHintCustom: "兼容 OpenAI 格式的接口 (如 DeepSeek, Moonshot 等)",
     
     // Alert
     alertQuota: "API 配额保护机制生效。请勿刷新，正在后台尝试重连...",
     alertQuotaModern: "API Quota Limit Reached. Retrying in background...",
-    alertHDConfirm: "Nano Banana Pro (高清绘图) 需要连接 API Key。是否立即连接？",
+    alertHDConfirm: "高清绘图 (HD) 需要有效的 API Key。是否前往设置？",
 
     // Sidebar Left (Library)
     libTitleClassic: "藏书阁",
@@ -134,7 +147,9 @@ export const UI_TEXT = {
     consoleRemaining: "剩余",
     consoleRemainingModern: "REMAINING",
     consoleClear: "清空结果",
-    consoleClearModern: "CLEAR RESULTS"
+    consoleClearModern: "CLEAR RESULTS",
+    consoleExportTitle: "导出 / 下载",
+    consoleExportTitleModern: "EXPORTS"
   },
   EN: {
     // Landing
@@ -148,14 +163,14 @@ export const UI_TEXT = {
     headerMonitorHighLoad: "High Load",
     headerUserKey: "User Key (Local)",
     headerSessionKey: "Session Key",
-    headerSetKey: "Set API Key",
+    headerSetKey: "Settings / Key",
     headerQualitySD: "Standard",
     headerQualityHD: "HD Pro",
 
     // Input
     inputLabelClassic: "✦ Text Source Input",
     inputLabelModern: "Input Source",
-    importFile: "Import File (.md/.txt)",
+    importFile: "Import File (.md/.txt/.docx)",
     importFileModern: "Import File",
     clear: "Clear",
     clearModern: "Clear",
@@ -184,10 +199,14 @@ Finally, increasing throughput via parallel processing`,
     // Results
     resultsTitleClassic: "Illustrated Scrolls",
     resultsTitleModern: "Generated Assets",
-    downloadBatch: "Download Completed (ZIP)",
-    downloadBatchModern: "Download All (ZIP)",
+    downloadBatch: "Images (ZIP)",
+    downloadBatchModern: "Images (ZIP)",
+    downloadDocx: "Report (DOCX)",
+    downloadDocxModern: "Report (DOCX)",
     downloading: "Archiving...",
     downloadingModern: "Zipping...",
+    exporting: "Exporting...",
+    exportingModern: "Exporting...",
     emptyStateClassic: "Please input text above to begin the journey.",
     emptyStateModern: "Input text to generate diagrams.",
 
@@ -224,19 +243,27 @@ Finally, increasing throughput via parallel processing`,
     statusNoVisual: "No Visual",
     statusNoVisualModern: "NO VISUAL",
 
-    // API Modal
-    modalTitle: "Set API Key",
-    modalDesc: "Using your own API Key provides a more stable experience and avoids public quota limits.",
+    // API Modal & Settings
+    modalTitle: "Settings & API Key",
+    modalDesc: "Configure model providers. Gemini is recommended for the best experience.",
     modalGetKey: "Get Gemini API Key",
-    modalPlaceholder: "AIzaSy...",
-    modalRemember: "Remember on this device (Local Storage)",
+    modalPlaceholder: "sk-...",
+    modalRemember: "Remember configuration (Local Storage)",
     modalCancel: "Cancel",
     modalSave: "Confirm & Save",
+
+    settingsTabGemini: "Gemini (Recommended)",
+    settingsTabCustom: "Custom / Other Vendors",
+    settingsLabelProvider: "Provider",
+    settingsLabelBaseUrl: "API Base URL",
+    settingsLabelModel: "Model Name",
+    settingsLabelKey: "API Key",
+    settingsHintCustom: "Compatible with OpenAI format (e.g., DeepSeek, Moonshot)",
 
     // Alert
     alertQuota: "API Quota Limit Reached. Do not refresh, retrying in background...",
     alertQuotaModern: "API Quota Limit Reached. Retrying in background...",
-    alertHDConfirm: "Nano Banana Pro (HD) requires an API Key. Connect now?",
+    alertHDConfirm: "HD Generation requires a valid API Key. Configure now?",
 
     // Sidebar Left (Library)
     libTitleClassic: "Library",
@@ -264,7 +291,9 @@ Finally, increasing throughput via parallel processing`,
     consoleRemaining: "Remaining",
     consoleRemainingModern: "REMAINING",
     consoleClear: "Clear Results",
-    consoleClearModern: "CLEAR RESULTS"
+    consoleClearModern: "CLEAR RESULTS",
+    consoleExportTitle: "Exports",
+    consoleExportTitleModern: "EXPORTS"
   }
 };
 

@@ -1,5 +1,4 @@
 
-
 import React, { useState } from 'react';
 import { AppMode, GeneratedResult, LibraryItem, ResultStatus, Language } from '../types';
 import { UI_TEXT } from '../constants';
@@ -11,9 +10,13 @@ interface SidebarRightProps {
   results: GeneratedResult[];
   isPaused: boolean;
   onTogglePause: () => void;
-  onClearResults: () => void; // New prop
-  library: LibraryItem[]; // Needed to pick where to save
+  onClearResults: () => void;
+  library: LibraryItem[];
   onRefreshLibrary: () => void;
+  onDownloadZip: () => void; // Passed from App
+  onDownloadDocx: () => void; // Passed from App
+  isDownloadingZip: boolean;
+  isDownloadingDocx: boolean;
 }
 
 const SidebarRight: React.FC<SidebarRightProps> = ({ 
@@ -24,7 +27,11 @@ const SidebarRight: React.FC<SidebarRightProps> = ({
   onTogglePause,
   onClearResults,
   library,
-  onRefreshLibrary 
+  onRefreshLibrary,
+  onDownloadZip,
+  onDownloadDocx,
+  isDownloadingZip,
+  isDownloadingDocx
 }) => {
   const isModern = mode === AppMode.MODERN;
   const t = UI_TEXT[lang];
@@ -38,6 +45,7 @@ const SidebarRight: React.FC<SidebarRightProps> = ({
   const processed = results.filter(r => r.status === ResultStatus.SUCCESS || r.status === ResultStatus.ERROR).length;
   const remaining = total - processed;
   const percent = total > 0 ? Math.round((processed / total) * 100) : 0;
+  const hasSuccess = results.some(r => r.status === ResultStatus.SUCCESS);
 
   const handleSaveSession = async () => {
     if (!selectedFolderId || !sessionName.trim()) {
@@ -71,7 +79,7 @@ const SidebarRight: React.FC<SidebarRightProps> = ({
     ? "bg-gray-50 border-l border-gray-200 text-gray-700 font-modern" 
     : "bg-paper-100 border-l border-paper-300 text-ink-800 font-serif";
 
-  const buttonBase = "w-full py-2 mb-2 text-xs font-bold rounded shadow-sm transition-all";
+  const buttonBase = "w-full py-2 mb-2 text-xs font-bold rounded shadow-sm transition-all flex items-center justify-center gap-2";
   const pauseBtn = isModern
     ? (isPaused ? "bg-green-500 text-white hover:bg-green-600" : "bg-yellow-500 text-white hover:bg-yellow-600")
     : (isPaused ? "bg-ink-600 text-paper-50 hover:bg-ink-800" : "bg-cinnabar-700 text-paper-50 hover:bg-cinnabar-900");
@@ -89,7 +97,7 @@ const SidebarRight: React.FC<SidebarRightProps> = ({
       </h2>
 
       {/* 2. Queue Control */}
-      <div className="mb-8">
+      <div className="mb-6">
         <label className="text-[10px] uppercase font-bold opacity-50 mb-2 block">
             {isModern ? t.consoleStatusModern : t.consoleStatus}
         </label>
@@ -135,7 +143,28 @@ const SidebarRight: React.FC<SidebarRightProps> = ({
         </button>
       </div>
 
-      {/* 3. Save Session */}
+      {/* 3. Export Buttons (New Location) */}
+      <div className="mb-8">
+         <label className="text-[10px] uppercase font-bold opacity-50 mb-2 block">
+            {isModern ? t.consoleExportTitleModern : t.consoleExportTitle}
+         </label>
+         <button 
+           onClick={onDownloadDocx}
+           disabled={!hasSuccess || isDownloadingDocx}
+           className={`${buttonBase} ${isModern ? 'bg-white border border-gray-200 text-blue-600 hover:bg-blue-50' : 'bg-paper-50 border border-ink-300 text-ink-800 hover:bg-paper-200'} disabled:opacity-50`}
+         >
+           {isDownloadingDocx ? (isModern ? t.exportingModern : t.exporting) : (isModern ? t.downloadDocxModern : t.downloadDocx)}
+         </button>
+         <button 
+           onClick={onDownloadZip}
+           disabled={!hasSuccess || isDownloadingZip}
+           className={`${buttonBase} ${isModern ? 'bg-white border border-gray-200 text-modern-accent hover:bg-blue-50' : 'bg-paper-50 border border-ink-300 text-ink-600 hover:bg-paper-200'} disabled:opacity-50`}
+         >
+           {isDownloadingZip ? (isModern ? t.downloadingModern : t.downloading) : (isModern ? t.downloadBatchModern : t.downloadBatch)}
+         </button>
+      </div>
+
+      {/* 4. Save Session */}
       <div className={`mt-auto pt-6 border-t ${isModern ? 'border-gray-200' : 'border-ink-300'}`}>
         <label className="text-[10px] uppercase font-bold opacity-50 mb-4 block">
             {isModern ? t.consoleSaveModern : t.consoleSave}

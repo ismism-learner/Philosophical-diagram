@@ -8,11 +8,12 @@ interface ResultCardProps {
   result: GeneratedResult;
   onDelete: () => void;
   onRetry: () => void;
-  onUpdatePrompt: (newPrompt: string) => void; // New prop for prompt updates
+  onUpdatePrompt: (newPrompt: string) => void;
+  onImageClick: (url: string) => void; // New prop for lightbox
   lang: Language;
 }
 
-const ResultCard: React.FC<ResultCardProps> = ({ result, onDelete, onRetry, onUpdatePrompt, lang }) => {
+const ResultCard: React.FC<ResultCardProps> = ({ result, onDelete, onRetry, onUpdatePrompt, onImageClick, lang }) => {
   const cardRef = useRef<HTMLDivElement>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -21,7 +22,8 @@ const ResultCard: React.FC<ResultCardProps> = ({ result, onDelete, onRetry, onUp
   const isModern = result.mode === AppMode.MODERN;
   const t = UI_TEXT[lang];
 
-  const handleSaveImage = async () => {
+  const handleSaveImage = async (e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent opening lightbox
     if (!cardRef.current || !result.imageUrl) return;
     
     setIsSaving(true);
@@ -55,7 +57,6 @@ const ResultCard: React.FC<ResultCardProps> = ({ result, onDelete, onRetry, onUp
       if (editValue.trim()) {
           onUpdatePrompt(editValue);
           setIsEditing(false);
-          // Auto trigger regenerate after save
           setTimeout(onRetry, 100);
       }
   };
@@ -80,7 +81,6 @@ const ResultCard: React.FC<ResultCardProps> = ({ result, onDelete, onRetry, onUp
   if (isModern) {
     return (
       <div id={`result-card-${result.id}`} className="relative group mb-12">
-        {/* Delete Button (Modern Style) */}
         <button
           onClick={onDelete}
           data-html2canvas-ignore
@@ -93,7 +93,7 @@ const ResultCard: React.FC<ResultCardProps> = ({ result, onDelete, onRetry, onUp
           ref={cardRef}
           className="bg-white border border-gray-200 shadow-sm hover:shadow-md transition-shadow flex flex-col md:flex-row relative rounded-lg overflow-hidden min-h-[450px]"
         >
-          {/* 1. Source Text Panel */}
+          {/* Source Text */}
           <div className="md:w-1/4 bg-gray-50 border-r border-gray-200 p-6 flex flex-col">
             <div className="mb-4">
                <span className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">{t.cardSourceTextModern}</span>
@@ -105,12 +105,10 @@ const ResultCard: React.FC<ResultCardProps> = ({ result, onDelete, onRetry, onUp
             </div>
           </div>
 
-          {/* 2. Diagram Visual */}
+          {/* Diagram Visual */}
           <div className="md:w-2/5 bg-white relative flex items-center justify-center border-r border-gray-100 p-8">
-             
              <div className="w-full h-full relative flex items-center justify-center">
                 <div className="absolute top-0 right-0 z-20 flex gap-2" data-html2canvas-ignore>
-                   {/* Regenerate Button (Icon) */}
                    {result.concept && (
                        <button
                          onClick={onRetry}
@@ -120,7 +118,6 @@ const ResultCard: React.FC<ResultCardProps> = ({ result, onDelete, onRetry, onUp
                          ↻
                        </button>
                    )}
-                   {/* Save Image Button */}
                    {result.imageUrl && result.status === ResultStatus.SUCCESS && (
                     <button
                       onClick={handleSaveImage}
@@ -153,14 +150,19 @@ const ResultCard: React.FC<ResultCardProps> = ({ result, onDelete, onRetry, onUp
                     )}
                   </div>
                 ) : result.imageUrl ? (
-                  <img src={result.imageUrl} className="w-full h-auto object-contain max-h-[350px]" alt="Diagram" />
+                  <img 
+                    src={result.imageUrl} 
+                    className="w-full h-auto object-contain max-h-[350px] cursor-zoom-in hover:opacity-95 transition-opacity" 
+                    alt="Diagram"
+                    onClick={() => onImageClick(result.imageUrl!)} 
+                  />
                 ) : (
                    <span className="text-gray-300 font-medium text-xs">{t.statusNoVisualModern}</span>
                 )}
              </div>
           </div>
 
-          {/* 3. Analysis Panel */}
+          {/* Analysis */}
           <div className="md:w-[35%] p-8 flex flex-col bg-white relative">
              <div className="mb-2">
                 <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-600 uppercase tracking-wide">
@@ -187,7 +189,6 @@ const ResultCard: React.FC<ResultCardProps> = ({ result, onDelete, onRetry, onUp
                                 <p className="text-[10px] text-gray-400 font-bold uppercase">{t.cardPromptModern}</p>
                             </div>
                             <div className="flex gap-2">
-                                {/* Edit Button */}
                                 <button
                                     onClick={startEditing}
                                     className="text-gray-400 hover:text-modern-accent text-[10px] uppercase font-bold"
@@ -195,11 +196,9 @@ const ResultCard: React.FC<ResultCardProps> = ({ result, onDelete, onRetry, onUp
                                 >
                                     [{t.cardEditModern}]
                                 </button>
-                                {/* Copy Button */}
                                 <button 
                                     onClick={handleCopyPrompt} 
                                     className="text-gray-300 hover:text-modern-accent text-[10px]"
-                                    title="Copy Prompt"
                                     data-html2canvas-ignore
                                 >
                                     <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -239,30 +238,24 @@ const ResultCard: React.FC<ResultCardProps> = ({ result, onDelete, onRetry, onUp
     );
   }
 
-  // ================= CLASSIC THEME (Fallback) =================
+  // ================= CLASSIC THEME =================
   return (
-    <div 
-      id={`result-card-${result.id}`}
-      className="relative group mb-12"
-    >
-      {/* "Bookmark" Delete Button */}
+    <div id={`result-card-${result.id}`} className="relative group mb-12">
       <button
         onClick={onDelete}
         data-html2canvas-ignore
         className="absolute -top-3 -right-2 z-30 bg-cinnabar-700 text-white w-8 h-10 shadow-md flex items-end justify-center pb-2 hover:h-12 transition-all duration-300 font-serif"
         style={{ clipPath: 'polygon(0% 0%, 100% 0%, 100% 100%, 50% 80%, 0% 100%)' }}
-        title="移除此页"
       >
         <span className="text-xs">✕</span>
       </button>
 
-      {/* Main Card Container */}
       <div 
         ref={cardRef}
         className="bg-paper-50 text-ink-800 shadow-2xl overflow-hidden flex flex-col md:flex-row border border-paper-300 relative"
         style={{ boxShadow: '10px 10px 20px rgba(0,0,0,0.1)' }}
       >
-        {/* 1. Source Text (Scroll) */}
+        {/* Source Text */}
         <div className="md:w-1/4 bg-paper-200/50 p-6 border-r border-paper-300 flex flex-col">
            <div className="mb-4 border-b border-paper-300 pb-2">
               <span className="font-serif text-xs font-bold text-ink-600 tracking-widest">{t.cardSourceText}</span>
@@ -272,17 +265,15 @@ const ResultCard: React.FC<ResultCardProps> = ({ result, onDelete, onRetry, onUp
            </div>
         </div>
 
-        {/* 2. Illustration */}
+        {/* Illustration */}
         <div className="md:w-2/5 p-6 bg-paper-100 border-r border-paper-300 relative flex flex-col justify-center items-center min-h-[400px]">
           <div className="w-full h-full border-4 double border-ink-600/20 p-2 bg-white relative shadow-inner">
-            {/* Corners */}
             <div className="absolute top-0 left-0 w-4 h-4 border-t-2 border-l-2 border-ink-800"></div>
             <div className="absolute top-0 right-0 w-4 h-4 border-t-2 border-r-2 border-ink-800"></div>
             <div className="absolute bottom-0 left-0 w-4 h-4 border-b-2 border-l-2 border-ink-800"></div>
             <div className="absolute bottom-0 right-0 w-4 h-4 border-b-2 border-r-2 border-ink-800"></div>
 
             <div className="absolute top-4 right-4 z-20 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300" data-html2canvas-ignore>
-                 {/* Regenerate */}
                  {result.concept && (
                      <button
                         onClick={onRetry}
@@ -292,7 +283,6 @@ const ResultCard: React.FC<ResultCardProps> = ({ result, onDelete, onRetry, onUp
                         ↻
                      </button>
                  )}
-                 {/* Save */}
                 {result.imageUrl && result.status === ResultStatus.SUCCESS && (
                     <button
                     onClick={handleSaveImage}
@@ -325,14 +315,19 @@ const ResultCard: React.FC<ResultCardProps> = ({ result, onDelete, onRetry, onUp
                 )}
               </div>
             ) : result.imageUrl ? (
-              <img src={result.imageUrl} className="w-full h-full object-contain filter sepia-[0.2] contrast-[1.05]" alt="Art" />
+              <img 
+                src={result.imageUrl} 
+                className="w-full h-full object-contain filter sepia-[0.2] contrast-[1.05] cursor-zoom-in" 
+                alt="Art" 
+                onClick={() => onImageClick(result.imageUrl!)}
+              />
             ) : (
               <div className="w-full h-full flex items-center justify-center text-cinnabar-700 font-serif text-sm">{t.statusNoVisual}</div>
             )}
           </div>
         </div>
 
-        {/* 3. Analysis Text */}
+        {/* Analysis */}
         <div className="md:w-[35%] p-8 flex flex-col bg-paper-50 relative">
           <div className="w-8 h-1 bg-cinnabar-700 mb-6"></div>
           <div className="mb-2">
@@ -361,9 +356,8 @@ const ResultCard: React.FC<ResultCardProps> = ({ result, onDelete, onRetry, onUp
                                 [{t.cardEdit}]
                             </button>
                             <button 
-                                    onClick={handleCopyPrompt} 
-                                    className="text-ink-400 hover:text-cinnabar-700 text-[10px]"
-                                    title="Copy Prompt"
+                                onClick={handleCopyPrompt} 
+                                className="text-ink-400 hover:text-cinnabar-700 text-[10px]"
                             >
                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />

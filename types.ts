@@ -61,3 +61,19 @@ export interface LibraryItem {
   data?: SavedSession; // Only for files
   createdAt: number;
 }
+
+// --- AI Service Types ---
+
+export type AIProvider = 'gemini' | 'openai' | 'custom';
+
+export interface AISettings {
+  textProvider: AIProvider;
+  textModel: string;
+  textBaseUrl?: string;
+  textApiKey?: string;
+
+  imageProvider: AIProvider;
+  imageModel: string;
+  imageBaseUrl?: string;
+  imageApiKey?: string;
+}
