@@ -479,6 +479,19 @@ const App: React.FC = () => {
     }
   };
 
+  const getImageDimensions = (base64: string): Promise<{ width: number; height: number }> => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        resolve({ width: img.naturalWidth, height: img.naturalHeight });
+      };
+      img.onerror = () => {
+        resolve({ width: 500, height: 281 }); // Fallback
+      };
+      img.src = base64;
+    });
+  };
+
   const handleDocxExport = async () => {
     const successResults = results.filter(r => r.status === ResultStatus.SUCCESS && r.imageUrl && r.concept);
     if (successResults.length === 0) {
@@ -560,7 +573,16 @@ const App: React.FC = () => {
             if (res.imageUrl) {
                 try {
                     const imageBuffer = base64DataURLToUint8Array(res.imageUrl);
+                    const dims = await getImageDimensions(res.imageUrl);
+                    
                     if (imageBuffer) {
+                        // Calculate dimensions to fit 5/6 of document width
+                        // Standard printable width is ~600px. 5/6 is ~500px. 
+                        // We use 520px as a safe "large but fitting" size.
+                        const targetWidth = 520;
+                        const aspectRatio = dims.width / dims.height;
+                        const targetHeight = targetWidth / aspectRatio;
+
                         docChildren.push(
                             new Paragraph({
                                 alignment: AlignmentType.CENTER,
@@ -568,8 +590,8 @@ const App: React.FC = () => {
                                     new ImageRun({
                                         data: imageBuffer,
                                         transformation: {
-                                            width: 500,
-                                            height: 281, 
+                                            width: targetWidth,
+                                            height: targetHeight,
                                         },
                                     }),
                                 ],
