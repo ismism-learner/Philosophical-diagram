@@ -1,12 +1,23 @@
 
-
-
-
-
-
 export const TEXT_MODEL = 'gemini-2.5-flash';
 export const IMAGE_MODEL_SD = 'gemini-2.5-flash-image'; // Nano Banana
 export const IMAGE_MODEL_HD = 'gemini-3-pro-image-preview'; // Nano Banana Pro
+
+export const AVAILABLE_GEMINI_IMAGE_MODELS = [
+  { value: 'gemini-2.5-flash-image', label: 'Gemini 2.5 Flash Image (Nano Banana)' },
+  { value: 'gemini-3-pro-image-preview', label: 'Gemini 3 Pro Image (Nano Banana Pro)' },
+  { value: 'imagen-3.0-generate-001', label: 'Imagen 3 (Standard)' },
+];
+
+export const ASPECT_RATIOS = [
+  { value: '1:1', label: '1:1 (Square / 正方形)' },
+  { value: '3:4', label: '3:4 (Portrait Card / 竖版卡片)' },
+  { value: '4:3', label: '4:3 (Landscape Card / 横版卡片)' },
+  { value: '9:16', label: '9:16 (Mobile Story / 手机全屏)' },
+  { value: '16:9', label: '16:9 (Wide / 宽屏)' },
+];
+
+export const DEFAULT_DIRECT_TEMPLATE = `Generate a high-quality information card image. 绘制使用中文绘制成为完整的信息卡输出，尽可能的使用PUNCH的展示所有内容在一页内容！这是一个基于您提供的文章内容设计的完整信息卡片。为了达到“PUNCH”的效果，我采用了模块化设计，提炼了核心关键词，并配合了视觉符号和紧凑的排版，强调视觉冲击力和信息获取效率。`;
 
 // ---------------- UI TRANSLATIONS ----------------
 export const UI_TEXT = {
@@ -23,9 +34,7 @@ export const UI_TEXT = {
     headerUserKey: "用户 Key (本地)",
     headerSessionKey: "会话 Key",
     headerSetKey: "设置 / Key",
-    headerQualitySD: "标准",
-    headerQualityHD: "精绘",
-
+    
     // Input
     inputLabelClassic: "✦ 文本 / 视频文稿输入",
     inputLabelModern: "Input Source",
@@ -121,12 +130,32 @@ export const UI_TEXT = {
     settingsLabelBaseUrl: "API Base URL",
     settingsLabelModel: "模型名称",
     settingsLabelKey: "API Key",
+    settingsLabelRatio: "图片比例",
     settingsHintCustom: "兼容 OpenAI 格式的接口 (如 DeepSeek, Moonshot 等)",
-    
+    settingsOptionCustom: "自定义输入 (Custom)",
+
+    // New Settings UI
+    settingsLabelStrategy: "提示词策略",
+    settingsStrategyAuto: "智能转译 (AI Auto-Prompt)",
+    settingsStrategyAutoDesc: "推荐。LLM 分析文本后生成简短的英文画面描述。适合标准模型。",
+    settingsStrategyDirect: "原文直出 (Direct Text + Template)",
+    settingsStrategyDirectDesc: "专家模式。将“固定模版+原文”直接喂给生图模型。适合 Gemini 3 Pro 等强文本模型。",
+    settingsLabelTemplate: "固定模版 (Fixed Prompt)",
+    settingsHintTemplate: "这段话将拼接到原文之前，发送给生图模型。",
+
+    // Header Review Modal
+    reviewTitle: "标题预审 (OCR 清洗)",
+    reviewTitleModern: "Header Review (OCR Clean)",
+    reviewDesc: "系统检测到以下 # 开头的行。请勾选**保留**作为章节标题的行（标题将用于分段，但**不会**生成图片）。未勾选的行将被视为**噪点**并彻底删除。",
+    reviewDescModern: "The following lines start with '#'. Check lines to **KEEP** as headers (Headers separate sections but will **NOT** generate images). Unchecked lines will be removed as noise.",
+    reviewConfirm: "确认并生成",
+    reviewConfirmModern: "Confirm & Generate",
+    reviewSelectAll: "全选",
+    reviewDeselectAll: "全不选",
+
     // Alert
     alertQuota: "API 配额保护机制生效。请勿刷新，正在后台尝试重连...",
     alertQuotaModern: "API Quota Limit Reached. Retrying in background...",
-    alertHDConfirm: "高清绘图 (HD) 需要有效的 API Key。是否前往设置？",
 
     // Sidebar Left (Library)
     libTitleClassic: "藏书阁",
@@ -171,8 +200,6 @@ export const UI_TEXT = {
     headerUserKey: "User Key (Local)",
     headerSessionKey: "Session Key",
     headerSetKey: "Settings / Key",
-    headerQualitySD: "Standard",
-    headerQualityHD: "HD Pro",
 
     // Input
     inputLabelClassic: "✦ Text Source Input",
@@ -269,12 +296,32 @@ Finally, increasing throughput via parallel processing`,
     settingsLabelBaseUrl: "API Base URL",
     settingsLabelModel: "Model Name",
     settingsLabelKey: "API Key",
+    settingsLabelRatio: "Aspect Ratio",
     settingsHintCustom: "Compatible with OpenAI format (e.g., DeepSeek, Moonshot)",
+    settingsOptionCustom: "Custom Input",
+
+    // New Settings UI
+    settingsLabelStrategy: "Prompt Strategy",
+    settingsStrategyAuto: "AI Auto-Prompt (Classic)",
+    settingsStrategyAutoDesc: "Recommended. LLM describes the scene in English. Best for standard models.",
+    settingsStrategyDirect: "Direct Text (Template + Source)",
+    settingsStrategyDirectDesc: "Expert. Sends 'Template + Source Text' directly to image model. Best for Gemini 3 Pro.",
+    settingsLabelTemplate: "Fixed Template",
+    settingsHintTemplate: "This text is prepended to the source text sent to the image model.",
+
+    // Header Review Modal
+    reviewTitle: "Header Review (OCR Clean)",
+    reviewTitleModern: "Header Review (OCR Clean)",
+    reviewDesc: "Detected lines starting with '#'. Check lines to **KEEP** as headers (Headers separate sections but will **NOT** generate images). Unchecked lines will be removed as noise.",
+    reviewDescModern: "Detected lines starting with '#'. Check lines to **KEEP** as headers (Headers separate sections but will **NOT** generate images). Unchecked lines will be removed as noise.",
+    reviewConfirm: "Confirm & Generate",
+    reviewConfirmModern: "Confirm & Generate",
+    reviewSelectAll: "Select All",
+    reviewDeselectAll: "Deselect All",
 
     // Alert
     alertQuota: "API Quota Limit Reached. Do not refresh, retrying in background...",
     alertQuotaModern: "API Quota Limit Reached. Retrying in background...",
-    alertHDConfirm: "HD Generation requires a valid API Key. Configure now?",
 
     // Sidebar Left (Library)
     libTitleClassic: "Library",
@@ -344,7 +391,7 @@ export const SYSTEM_INSTRUCTION_MODERN_ZH = `
 请按照以下步骤操作，并以严格的 JSON 格式输出：
 
 1. **分析 (Analyze)**：理解文本中的研究对象、关键变量（自变量、因变量、中介变量等）或逻辑流程。
-2. **解释 (explanation)**：在 "explanation" 字段中，用【中文】以简练、专业、客观的口吻解释该逻辑单元的核心内容。
+2. **解释 (explanation)**：在 "explanation" field, use 【中文】以简练、专业、客观的口吻解释该逻辑单元的核心内容。
 3. **视觉指令 (visualPrompt)**：
    - 必须完全使用【英文】编写。
    - 这是一个独立的段落，将被直接用于生成图片。

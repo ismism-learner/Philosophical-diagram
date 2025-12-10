@@ -1,6 +1,4 @@
 
-
-
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import JSZip from 'jszip';
 import FileSaver from 'file-saver';
@@ -11,16 +9,19 @@ import mammoth from 'mammoth';
 
 import { chunkText, analyzeSingleChunk, generateConceptImage, loadSettings, saveSettings, preprocessOCRText } from './services/geminiService';
 import { getLibrary as loadLibraryFromStorage } from './services/storageService'; 
-import { GeneratedResult, AppState, AppMode, ResultStatus, Language, LibraryItem, SavedSession, AISettings, AIProvider } from './types';
-import { UI_TEXT, TEXT_MODEL, IMAGE_MODEL_SD } from './constants';
+import { GeneratedResult, AppState, AppMode, ResultStatus, Language, LibraryItem, SavedSession, AISettings, AIProvider, GenerationMode } from './types';
+import { UI_TEXT, TEXT_MODEL, IMAGE_MODEL_SD, AVAILABLE_GEMINI_IMAGE_MODELS, ASPECT_RATIOS } from './constants';
 import Button from './components/Button';
 import ResultCard from './components/ResultCard';
 import SidebarLeft from './components/SidebarLeft'; 
 import SidebarRight from './components/SidebarRight'; 
 import ImageLightbox from './components/ImageLightbox';
+import HeaderReviewModal from './components/HeaderReviewModal'; 
 
 const App: React.FC = () => {
   const [mode, setMode] = useState<AppMode | null>(null); // Null means Landing Screen
+  const isModern = mode === AppMode.MODERN;
+
   const [language, setLanguage] = useState<Language>(Language.ZH);
   const t = UI_TEXT[language];
   
@@ -34,12 +35,33 @@ const App: React.FC = () => {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [editingSettings, setEditingSettings] = useState<AISettings>(loadSettings());
   
+  // Helper for Settings UI: Detect if model is one of the presets or custom
+  const getEditingImageModelValue = () => {
+    const model = editingSettings.imageModel;
+    if (AVAILABLE_GEMINI_IMAGE_MODELS.some(m => m.value === model)) {
+        return model;
+    }
+    return 'custom';
+  };
+  const [isCustomImageModel, setIsCustomImageModel] = useState(false);
+
+  // Sync custom state when modal opens or settings change
+  useEffect(() => {
+     const isPreset = AVAILABLE_GEMINI_IMAGE_MODELS.some(m => m.value === editingSettings.imageModel);
+     setIsCustomImageModel(!isPreset);
+  }, [editingSettings.imageModel]);
+
   // Rate Limit Monitor
   const [requestHistory, setRequestHistory] = useState<number[]>([]);
   const [sessionTotalRequests, setSessionTotalRequests] = useState(0);
 
-  const [isHD, setIsHD] = useState(false);
-  const [isOCR, setIsOCR] = useState(false); // OCR Mode State
+  // OCR defaults to true
+  const [isOCR, setIsOCR] = useState(true); 
+  
+  // Header Review State
+  const [showHeaderReview, setShowHeaderReview] = useState(false);
+  const [detectedHeaders, setDetectedHeaders] = useState<{index: number, text: string}[]>([]);
+
   const [isDownloadingBatch, setIsDownloadingBatch] = useState(false);
   const [isExportingDocx, setIsExportingDocx] = useState(false); 
   const [hoveredSide, setHoveredSide] = useState<'classic' | 'modern' | null>(null);
@@ -95,7 +117,7 @@ const App: React.FC = () => {
 
   // --- SETTINGS HANDLERS ---
   const handleOpenSettings = () => {
-    setEditingSettings(settings); // Load current into edit state
+    setEditingSettings(loadSettings()); // Reload from storage to get fresh defaults/updates
     setShowSettingsModal(true);
   };
 
@@ -181,29 +203,70 @@ const App: React.FC = () => {
   const handleAnalyzeAndGenerate = useCallback(async () => {
     if (!inputText.trim() || !mode) return;
 
-    if (isHD && !hasValidKey()) {
-      const confirmed = window.confirm(t.alertHDConfirm);
-      if (confirmed) {
-         setShowSettingsModal(true);
-         return;
-      } else {
-        setIsHD(false); 
-      }
+    // STEP A: If OCR is enabled, scan for headers first
+    if (isOCR) {
+        const lines = inputText.split(/\r?\n/);
+        const headers: {index: number, text: string}[] = [];
+        
+        lines.forEach((line, idx) => {
+            if (line.trim().startsWith('#')) {
+                headers.push({ index: idx, text: line.trim() });
+            }
+        });
+
+        // If found, pause and show modal
+        if (headers.length > 0) {
+            setDetectedHeaders(headers);
+            setShowHeaderReview(true);
+            return; 
+        }
     }
 
+    // STEP B: No headers found or OCR disabled, run directly
+    runGenerationPipeline(inputText);
+  }, [inputText, mode, isOCR]);
+
+
+  // 2. Triggered by Header Review Modal confirmation
+  const handleConfirmHeaders = (indicesToKeep: Set<number>) => {
+      setShowHeaderReview(false);
+      
+      const lines = inputText.split(/\r?\n/);
+      
+      // Filter out NOISE (headers that were NOT selected)
+      const detectedIndices = new Set(detectedHeaders.map(h => h.index));
+      const filteredLines = lines.filter((_, idx) => {
+          if (detectedIndices.has(idx)) {
+              return indicesToKeep.has(idx); // Only keep if user selected it
+          }
+          return true; // Keep normal text
+      });
+
+      const cleanedText = filteredLines.join('\n');
+      runGenerationPipeline(cleanedText);
+  };
+
+
+  // 3. The actual generation pipeline
+  const runGenerationPipeline = useCallback(async (textSource: string) => {
     setAppState(AppState.PROCESSING);
     setErrorMsg(null);
     setResults([]);
 
     // Pre-process text if OCR mode is enabled
-    let textToProcess = inputText;
+    // This runs AFTER the noise removal
+    let textToProcess = textSource;
     if (isOCR) {
-        textToProcess = preprocessOCRText(inputText);
+        textToProcess = preprocessOCRText(textSource);
     }
 
-    const chunks = chunkText(textToProcess);
+    let chunks = chunkText(textToProcess);
     
-    // Check if cleaning resulted in empty text
+    // HEADER FILTERING
+    if (isOCR) {
+        chunks = chunks.filter(chunk => !chunk.trim().startsWith('#'));
+    }
+    
     if (chunks.length === 0) {
         setAppState(AppState.IDLE);
         return;
@@ -211,7 +274,7 @@ const App: React.FC = () => {
 
     const newItems: GeneratedResult[] = chunks.map((chunk, i) => ({
       id: `res-${Date.now()}-${i}`,
-      mode: mode,
+      mode: mode!,
       sourceText: chunk,
       status: ResultStatus.WAITING,
       imageUrl: null
@@ -235,7 +298,7 @@ const App: React.FC = () => {
                 continue;
             }
 
-            const error = await processSingleItem(item.id, item.sourceText, mode);
+            const error = await processSingleItem(item.id, item.sourceText, mode!);
             
             if (error) {
                const errStr = JSON.stringify(error);
@@ -246,7 +309,8 @@ const App: React.FC = () => {
                }
             }
             
-            await new Promise(resolve => setTimeout(resolve, 10000));
+            // Wait a bit before next item analysis to be safe, though retry loop has its own delay
+            await new Promise(resolve => setTimeout(resolve, 1000));
         }
         
         if (!quotaExceeded) {
@@ -256,7 +320,8 @@ const App: React.FC = () => {
 
     processQueue();
 
-  }, [inputText, isHD, mode, language, settings, isOCR]); 
+  }, [mode, language, settings, isOCR, isModern, t]);
+
 
   const processSingleItem = async (id: string, source: string, mode: AppMode): Promise<any | null> => {
     try {
@@ -267,18 +332,68 @@ const App: React.FC = () => {
         if (!concept) throw new Error("Concept analysis returned null");
 
         updateResult(id, { status: ResultStatus.GENERATING, concept });
-        trackRequest();
         
-        // Check if user wants HD. 
-        // Note: For custom providers, HD flag just changes model string if configured, otherwise handled in service.
-        const base64Image = await generateConceptImage(concept.visualPrompt, mode, settings, isHD);
+        // --- RETRY LOOP FOR IMAGE GENERATION ---
+        let base64Image: string | null = null;
+        let attempt = 1;
+        
+        // Loop until success or manual pause
+        while (!base64Image) {
+            try {
+                // 1. Check Pause Status immediately
+                if (pausedRef.current) throw new Error("Queue paused.");
+
+                // 2. Try Generation
+                trackRequest();
+                base64Image = await generateConceptImage(concept.visualPrompt, mode, settings);
+
+            } catch (imgErr: any) {
+                console.warn(`Image Gen Attempt ${attempt} failed:`, imgErr);
+                
+                // If 403 Permission Denied, DO NOT retry (it won't fix itself)
+                const errStr = JSON.stringify(imgErr) + (imgErr.message || "");
+                if (errStr.includes("403") || errStr.includes("PERMISSION_DENIED")) {
+                     updateResult(id, { 
+                         status: ResultStatus.ERROR, 
+                         error: isModern 
+                            ? "Permission Denied (403). Check Key/Model Access." 
+                            : "权限拒绝 (403)。请检查 Key 或模型权限。" 
+                     });
+                     throw imgErr; // Stop this item
+                }
+
+                // If paused during catch, stop
+                if (pausedRef.current) throw new Error("Queue paused.");
+
+                // Show "Retrying..." status in UI
+                const retryMsg = isModern 
+                    ? `Generation failed (Attempt ${attempt}). Retrying in 30s...` 
+                    : `生成失败 (第 ${attempt} 次). 30秒后自动重试...`;
+                
+                const detailMsg = imgErr.message || "Unknown error";
+                updateResult(id, { status: ResultStatus.ERROR, error: `${retryMsg}\n[${detailMsg}]` });
+
+                // Smart Wait: 30 seconds, but check for pause every 1 second
+                // This makes the UI responsive if user clicks "Pause" during the wait
+                for (let i = 0; i < 30; i++) {
+                    if (pausedRef.current) throw new Error("Queue paused during wait.");
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+
+                // Reset status to GENERATING to show spinner again
+                updateResult(id, { status: ResultStatus.GENERATING, error: undefined });
+                attempt++;
+            }
+        }
+        // --- END RETRY LOOP ---
 
         updateResult(id, { status: ResultStatus.SUCCESS, imageUrl: base64Image });
         return null;
 
     } catch (e: any) {
         console.error(`Processing failed for item ${id}`, e);
-        const errMsg = e.message || "Processing failed";
+        let errMsg = e.message || "Processing failed";
+        
         updateResult(id, { status: ResultStatus.ERROR, error: errMsg });
         return e;
     }
@@ -289,10 +404,14 @@ const App: React.FC = () => {
     updateResult(id, { status: ResultStatus.GENERATING, error: undefined });
     try {
         trackRequest();
-        const base64Image = await generateConceptImage(visualPrompt, cardMode, settings, isHD);
+        const base64Image = await generateConceptImage(visualPrompt, cardMode, settings);
         updateResult(id, { status: ResultStatus.SUCCESS, imageUrl: base64Image });
     } catch (err: any) {
-        updateResult(id, { status: ResultStatus.ERROR, error: "Retry failed" });
+        let errMsg = "Retry failed";
+         if (JSON.stringify(err).includes("403") || err.message?.includes("403")) {
+           errMsg = "Permission Denied (403)";
+        }
+        updateResult(id, { status: ResultStatus.ERROR, error: errMsg });
     }
   };
 
@@ -550,7 +669,6 @@ const App: React.FC = () => {
     );
   }
 
-  const isModern = mode === AppMode.MODERN;
   const themeClasses = isModern ? "bg-white text-modern-text font-modern bg-dot-grid modern-scroll" : "bg-paper-50 text-ink-800 font-serif bg-paper-texture classic-scroll";
   const currentRPM = requestHistory.length;
   const isHighTraffic = currentRPM > 8;
@@ -592,11 +710,6 @@ const App: React.FC = () => {
                 <div className={`w-2 h-2 rounded-full ${hasValidKey() ? 'bg-green-500' : 'bg-gray-400'}`}></div>
                 {hasValidKey() ? t.headerUserKey : t.headerSetKey}
              </button>
-
-             <div className={`flex items-center gap-2 p-1 rounded border ${isModern ? 'bg-gray-50 border-gray-200' : 'bg-paper-200/50 border-paper-300'}`}>
-                <button onClick={() => setIsHD(false)} className={`px-3 py-1 text-xs font-bold transition-all rounded-sm ${!isHD ? (isModern ? 'bg-white text-gray-800 shadow-sm' : 'bg-white text-ink-900 shadow-sm') : 'opacity-50'}`}>{t.headerQualitySD}</button>
-                <button onClick={() => setIsHD(true)} className={`px-3 py-1 text-xs font-bold transition-all flex items-center gap-1 rounded-sm ${isHD ? (isModern ? 'bg-modern-accent text-white shadow-sm' : 'bg-cinnabar-700 text-white shadow-sm') : 'opacity-50'}`}><span>{t.headerQualityHD}</span></button>
-            </div>
           </div>
         </div>
       </header>
@@ -719,6 +832,17 @@ const App: React.FC = () => {
         <ImageLightbox src={lightboxImage} onClose={() => setLightboxImage(null)} />
       )}
 
+      {/* NEW: Header Review Modal */}
+      {showHeaderReview && (
+          <HeaderReviewModal
+            headers={detectedHeaders}
+            mode={mode}
+            lang={language}
+            onConfirm={handleConfirmHeaders}
+            onCancel={() => setShowHeaderReview(false)}
+          />
+      )}
+
       {/* Settings Modal */}
       {showSettingsModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
@@ -727,7 +851,7 @@ const App: React.FC = () => {
                 <p className={`text-sm mb-6 ${isModern ? 'text-gray-500' : 'text-ink-600'}`}>{t.modalDesc}</p>
 
                 {/* TEXT SETTINGS */}
-                <div className="mb-8 p-4 rounded bg-gray-50/50 border border-gray-100">
+                <div className="mb-6 p-4 rounded bg-gray-50/50 border border-gray-100">
                     <h4 className="font-bold text-sm mb-4 uppercase tracking-wider text-gray-400">Text Generation</h4>
                     
                     <div className="grid grid-cols-2 gap-4 mb-4">
@@ -753,7 +877,6 @@ const App: React.FC = () => {
                             />
                         </div>
                     </div>
-
                     {editingSettings.textProvider !== 'gemini' && (
                         <div className="mb-4">
                              <label className="block text-xs font-bold mb-1">{t.settingsLabelBaseUrl}</label>
@@ -764,10 +887,8 @@ const App: React.FC = () => {
                                 placeholder="https://api.openai.com/v1"
                                 className="w-full p-2 text-sm border rounded mb-1"
                              />
-                             <p className="text-[10px] text-gray-400">{t.settingsHintCustom}</p>
                         </div>
                     )}
-
                     <div>
                         <label className="block text-xs font-bold mb-1">{t.settingsLabelKey}</label>
                         <input 
@@ -798,16 +919,50 @@ const App: React.FC = () => {
                         </div>
                         <div>
                             <label className="block text-xs font-bold mb-1">{t.settingsLabelModel}</label>
-                            <input 
-                                type="text" 
-                                value={editingSettings.imageModel}
-                                onChange={(e) => setEditingSettings({...editingSettings, imageModel: e.target.value})}
-                                placeholder={IMAGE_MODEL_SD}
-                                className="w-full p-2 text-sm border rounded"
-                            />
+                            {editingSettings.imageProvider === 'gemini' ? (
+                                <div className="space-y-2">
+                                    <select 
+                                        value={isCustomImageModel ? 'custom' : editingSettings.imageModel}
+                                        onChange={(e) => {
+                                            const val = e.target.value;
+                                            if (val === 'custom') {
+                                                setIsCustomImageModel(true);
+                                                setEditingSettings({...editingSettings, imageModel: ''});
+                                            } else {
+                                                setIsCustomImageModel(false);
+                                                setEditingSettings({...editingSettings, imageModel: val});
+                                            }
+                                        }}
+                                        className="w-full p-2 text-sm border rounded"
+                                    >
+                                        {AVAILABLE_GEMINI_IMAGE_MODELS.map(m => (
+                                            <option key={m.value} value={m.value}>{m.label}</option>
+                                        ))}
+                                        <option value="custom">{t.settingsOptionCustom}</option>
+                                    </select>
+                                    {isCustomImageModel && (
+                                        <input 
+                                            type="text" 
+                                            value={editingSettings.imageModel}
+                                            onChange={(e) => setEditingSettings({...editingSettings, imageModel: e.target.value})}
+                                            placeholder="e.g. gemini-experimental"
+                                            className="w-full p-2 text-sm border rounded bg-white"
+                                            autoFocus
+                                        />
+                                    )}
+                                </div>
+                            ) : (
+                                <input 
+                                    type="text" 
+                                    value={editingSettings.imageModel}
+                                    onChange={(e) => setEditingSettings({...editingSettings, imageModel: e.target.value})}
+                                    placeholder={IMAGE_MODEL_SD}
+                                    className="w-full p-2 text-sm border rounded"
+                                />
+                            )}
                         </div>
                     </div>
-                     {editingSettings.imageProvider !== 'gemini' && (
+                    {editingSettings.imageProvider !== 'gemini' && (
                         <div className="mb-4">
                              <label className="block text-xs font-bold mb-1">{t.settingsLabelBaseUrl}</label>
                              <input 
@@ -819,17 +974,82 @@ const App: React.FC = () => {
                              />
                         </div>
                     )}
-
-                     <div>
-                        <label className="block text-xs font-bold mb-1">{t.settingsLabelKey}</label>
-                        <input 
-                            type="password"
-                            value={editingSettings.imageApiKey || ''}
-                            onChange={(e) => setEditingSettings({...editingSettings, imageApiKey: e.target.value})}
-                            placeholder={t.modalPlaceholder}
-                            className="w-full p-2 text-sm border rounded"
-                        />
+                    
+                    <div className="grid grid-cols-2 gap-4 mb-4">
+                        <div>
+                             <label className="block text-xs font-bold mb-1">{t.settingsLabelKey}</label>
+                             <input 
+                                 type="password"
+                                 value={editingSettings.imageApiKey || ''}
+                                 onChange={(e) => setEditingSettings({...editingSettings, imageApiKey: e.target.value})}
+                                 placeholder={t.modalPlaceholder}
+                                 className="w-full p-2 text-sm border rounded"
+                             />
+                        </div>
+                        <div>
+                             <label className="block text-xs font-bold mb-1">{t.settingsLabelRatio}</label>
+                             <select 
+                                 value={editingSettings.aspectRatio}
+                                 onChange={(e) => setEditingSettings({...editingSettings, aspectRatio: e.target.value})}
+                                 className="w-full p-2 text-sm border rounded"
+                             >
+                                 {ASPECT_RATIOS.map(ratio => (
+                                     <option key={ratio.value} value={ratio.value}>{ratio.label}</option>
+                                 ))}
+                             </select>
+                        </div>
                     </div>
+                </div>
+
+                {/* NEW: PROMPT STRATEGY */}
+                <div className="mb-6 p-4 rounded bg-gray-50/50 border border-gray-100">
+                    <label className="block text-xs font-bold mb-3 uppercase tracking-wider text-gray-400">{t.settingsLabelStrategy}</label>
+                    
+                    <div className="space-y-3">
+                        <label className={`flex items-start gap-3 p-3 rounded border cursor-pointer transition-colors ${editingSettings.generationMode === 'auto' ? (isModern ? 'bg-blue-50 border-blue-200' : 'bg-paper-200 border-ink-400') : 'hover:bg-gray-50 border-gray-200'}`}>
+                            <input 
+                                type="radio" 
+                                name="strategy" 
+                                className="mt-1"
+                                checked={editingSettings.generationMode === 'auto'}
+                                onChange={() => setEditingSettings({...editingSettings, generationMode: 'auto'})}
+                            />
+                            <div>
+                                <div className="text-sm font-bold">{t.settingsStrategyAuto}</div>
+                                <div className="text-xs opacity-60 mt-0.5">{t.settingsStrategyAutoDesc}</div>
+                            </div>
+                        </label>
+
+                        <label className={`flex items-start gap-3 p-3 rounded border cursor-pointer transition-colors ${editingSettings.generationMode === 'direct' ? (isModern ? 'bg-blue-50 border-blue-200' : 'bg-paper-200 border-ink-400') : 'hover:bg-gray-50 border-gray-200'}`}>
+                            <input 
+                                type="radio" 
+                                name="strategy" 
+                                className="mt-1"
+                                checked={editingSettings.generationMode === 'direct'}
+                                onChange={() => setEditingSettings({...editingSettings, generationMode: 'direct'})}
+                            />
+                            <div>
+                                <div className="text-sm font-bold flex items-center gap-2">
+                                    {t.settingsStrategyDirect} 
+                                    <span className="bg-yellow-100 text-yellow-800 text-[9px] px-1.5 py-0.5 rounded uppercase font-extrabold tracking-wider">Nano Banana Pro</span>
+                                </div>
+                                <div className="text-xs opacity-60 mt-0.5">{t.settingsStrategyDirectDesc}</div>
+                            </div>
+                        </label>
+                    </div>
+
+                    {/* Direct Template Editor */}
+                    {editingSettings.generationMode === 'direct' && (
+                        <div className="mt-4 pl-8">
+                            <label className="block text-[10px] font-bold uppercase text-gray-400 mb-1">{t.settingsLabelTemplate}</label>
+                            <textarea 
+                                className="w-full h-32 text-xs p-2 border rounded font-mono text-gray-600 bg-gray-50 focus:bg-white focus:ring-1 focus:ring-blue-300 outline-none"
+                                value={editingSettings.directTemplate}
+                                onChange={(e) => setEditingSettings({...editingSettings, directTemplate: e.target.value})}
+                            />
+                            <p className="text-[10px] text-gray-400 mt-1">{t.settingsHintTemplate}</p>
+                        </div>
+                    )}
                 </div>
 
                 <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">

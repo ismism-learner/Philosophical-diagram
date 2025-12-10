@@ -65,6 +65,7 @@ export interface LibraryItem {
 // --- AI Service Types ---
 
 export type AIProvider = 'gemini' | 'openai' | 'custom';
+export type GenerationMode = 'auto' | 'direct'; // New Type
 
 export interface AISettings {
   textProvider: AIProvider;
@@ -76,4 +77,11 @@ export interface AISettings {
   imageModel: string;
   imageBaseUrl?: string;
   imageApiKey?: string;
+  
+  // New Fields for Prompt Strategy
+  generationMode: GenerationMode; 
+  directTemplate: string;
+  
+  // New: Aspect Ratio
+  aspectRatio: string; 
 }

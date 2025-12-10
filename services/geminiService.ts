@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { 
   TEXT_MODEL, 
@@ -6,9 +7,20 @@ import {
   SYSTEM_INSTRUCTION_CLASSIC_ZH,
   SYSTEM_INSTRUCTION_CLASSIC_EN,
   SYSTEM_INSTRUCTION_MODERN_ZH,
-  SYSTEM_INSTRUCTION_MODERN_EN
+  SYSTEM_INSTRUCTION_MODERN_EN,
+  DEFAULT_DIRECT_TEMPLATE
 } from "../constants";
 import { VisualConcept, AppMode, Language, AISettings } from "../types";
+
+// Helper to safely get API Key from environment without crashing if process is undefined
+const getEnvKey = (): string => {
+  try {
+    // @ts-ignore
+    return (typeof process !== 'undefined' && process.env?.API_KEY) || "";
+  } catch {
+    return "";
+  }
+};
 
 // Helper to determine if an error corresponds to a rate limit or temporary server issue
 function isRetryableError(error: any): boolean {
@@ -37,11 +49,6 @@ export function chunkText(text: string): string[] {
 }
 
 // --- OCR PRE-PROCESSING ---
-// Refined Logic (The "Aggressive Flow" fix with Header & Quote Awareness):
-// 1. Headers (lines starting with #) are treated as hard breaks. They stand alone.
-// 2. Paragraphs ONLY end when they encounter a Strong Terminal Punctuation Mark (. ? ! " etc).
-// 3. Double quotes ALONE are NOT terminal. They must follow punctuation (e.g. ." or ?” is terminal, but " is not).
-
 export function preprocessOCRText(text: string): string {
   // 1. Basic cleanup: split by newline, trim whitespace, filter empty lines
   const rawLines = text
@@ -55,9 +62,6 @@ export function preprocessOCRText(text: string): string {
   let buffer = "";
 
   // Regex for "Terminal Punctuation".
-  // REVISED: Double quotes (") are NO LONGER strong terminators on their own.
-  // A line is considered a paragraph end ONLY if it contains a sentence-ending mark (. ? ! 。 ！ ？).
-  // We allow an optional closing quote/bracket AFTER the punctuation.
   const TERMINAL_PUNCTUATION = /[.!?。！?？][”"’'」』]?$/;
 
   for (const line of rawLines) {
@@ -72,8 +76,6 @@ export function preprocessOCRText(text: string): string {
     }
 
     // HEADER RULES:
-    // 1. If the new line is a header, it breaks the current flow (even if previous line was incomplete).
-    // 2. If the current buffer is a header, it stands alone (don't merge next text into it).
     if (isHeader || bufferIsHeader) {
         mergedLines.push(buffer);
         buffer = line;
@@ -81,25 +83,14 @@ export function preprocessOCRText(text: string): string {
     }
 
     // PARAGRAPH MERGE RULES:
-    // Check if the BUFFER (the accumulated text so far) ends with a definitive stop.
     if (TERMINAL_PUNCTUATION.test(buffer)) {
-        // The previous block is a complete sentence/paragraph.
-        // Push it to results.
         mergedLines.push(buffer);
-        // Start new buffer with current line.
         buffer = line;
     } else {
-        // The previous block did NOT end in terminal punctuation.
-        // This covers:
-        // 1. Pagination break: "The nature of" (no punct) + "being is..."
-        // 2. Noise: "The nature of" (no punct) + "14" (Page num, no punct) + "being..."
-        // 3. Quote splits: 'He said "The' (quote no punct) + 'World"'
-        // Merge current line into buffer with a space.
         buffer += " " + line;
     }
   }
 
-  // Push the final remaining buffer
   if (buffer) {
     mergedLines.push(buffer);
   }
@@ -148,9 +139,16 @@ async function fetchOpenAIImage(
   apiKey: string, 
   baseUrl: string, 
   model: string, 
-  prompt: string
+  prompt: string,
+  aspectRatio: string
 ): Promise<string> {
   const url = `${baseUrl.replace(/\/+$/, '')}/images/generations`;
+  
+  // Note: OpenAI DALL-E 3 supports "1024x1024", "1024x1792" (Vertical), "1792x1024" (Wide)
+  let size = "1024x1024";
+  if (aspectRatio === '9:16' || aspectRatio === '3:4') size = "1024x1792";
+  if (aspectRatio === '16:9' || aspectRatio === '4:3') size = "1792x1024";
+
   const response = await fetch(url, {
     method: 'POST',
     headers: {
@@ -161,7 +159,7 @@ async function fetchOpenAIImage(
       model: model,
       prompt: prompt,
       n: 1,
-      size: "1024x1024",
+      size: size,
       response_format: "b64_json"
     })
   });
@@ -199,41 +197,56 @@ export const analyzeSingleChunk = async (
   }
 
   try {
+    let result: VisualConcept | null = null;
+
     // 1. Custom / OpenAI Provider
     if (settings.textProvider === 'custom' || settings.textProvider === 'openai') {
         const key = settings.textApiKey || "";
         const url = settings.textBaseUrl || "https://api.openai.com/v1";
         const model = settings.textModel || "gpt-3.5-turbo";
-        return await fetchOpenAIChat(key, url, model, chunk, systemInstruction);
+        result = await fetchOpenAIChat(key, url, model, chunk, systemInstruction);
+    } 
+    // 2. Default Gemini Provider
+    else {
+      const ai = new GoogleGenAI({ apiKey: settings.textApiKey || getEnvKey() });
+      const model = settings.textModel || TEXT_MODEL;
+
+      const response = await ai.models.generateContent({
+        model: model,
+        contents: {
+          parts: [{ text: chunk }] 
+        },
+        config: {
+          systemInstruction: systemInstruction,
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT, 
+            properties: {
+              conceptTitle: { type: Type.STRING },
+              explanation: { type: Type.STRING },
+              visualPrompt: { type: Type.STRING },
+            },
+            required: ["conceptTitle", "explanation", "visualPrompt"],
+          },
+        },
+      });
+
+      const jsonText = response.text;
+      if (jsonText) {
+          result = JSON.parse(jsonText) as VisualConcept;
+      }
     }
 
-    // 2. Default Gemini Provider
-    const ai = new GoogleGenAI({ apiKey: settings.textApiKey || process.env.API_KEY || "" });
-    const model = settings.textModel || TEXT_MODEL;
+    if (!result) return null;
 
-    const response = await ai.models.generateContent({
-      model: model,
-      contents: {
-        parts: [{ text: chunk }] 
-      },
-      config: {
-        systemInstruction: systemInstruction,
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT, 
-          properties: {
-            conceptTitle: { type: Type.STRING },
-            explanation: { type: Type.STRING },
-            visualPrompt: { type: Type.STRING },
-          },
-          required: ["conceptTitle", "explanation", "visualPrompt"],
-        },
-      },
-    });
+    // Direct Text Strategy: Overwrite visualPrompt
+    if (settings.generationMode === 'direct') {
+        const template = settings.directTemplate || DEFAULT_DIRECT_TEMPLATE;
+        // Prepend an explicit English directive to ensure the model knows it needs to generate an image
+        result.visualPrompt = `${template}\n\n【Source Content】:\n${chunk}`;
+    }
 
-    const jsonText = response.text;
-    if (!jsonText) return null;
-    return JSON.parse(jsonText) as VisualConcept;
+    return result;
 
   } catch (error: any) {
     if (isRetryableError(error)) {
@@ -254,15 +267,20 @@ export const generateConceptImage = async (
   basePrompt: string, 
   mode: AppMode, 
   settings: AISettings,
-  isHD: boolean = false, 
   retryCount = 0
 ): Promise<string> => {
   
-  const stylePrefix = mode === AppMode.CLASSIC
-    ? "Minimalist hand-drawn illustration, simple ink lines on parchment, woodblock print style, clean layout, no shading, schematic sketch: "
-    : "Scientific publication figure, academic vector illustration, clean lines, high contrast, white background: ";
+  let finalPrompt = basePrompt;
+  
+  // Only add style prefix if NOT in direct mode
+  if (settings.generationMode !== 'direct') {
+    const stylePrefix = mode === AppMode.CLASSIC
+        ? "Minimalist hand-drawn illustration, simple ink lines on parchment, woodblock print style, clean layout, no shading, schematic sketch: "
+        : "Scientific publication figure, academic vector illustration, clean lines, high contrast, white background: ";
+    finalPrompt = stylePrefix + basePrompt;
+  }
 
-  const finalPrompt = stylePrefix + basePrompt;
+  const aspectRatio = settings.aspectRatio || "3:4";
 
   try {
      // 1. Custom / OpenAI Provider
@@ -270,26 +288,36 @@ export const generateConceptImage = async (
         const key = settings.imageApiKey || "";
         const url = settings.imageBaseUrl || "https://api.openai.com/v1";
         const model = settings.imageModel || "dall-e-3";
-        return await fetchOpenAIImage(key, url, model, finalPrompt);
+        return await fetchOpenAIImage(key, url, model, finalPrompt, aspectRatio);
     }
 
     // 2. Default Gemini Provider
-    // Re-instantiate to use latest key
-    const ai = new GoogleGenAI({ apiKey: settings.imageApiKey || process.env.API_KEY || "" });
-    
-    // Determine model. If user manually set a model name in settings (and it's not the default), use it.
-    // Otherwise switch between SD/HD constants.
-    let model = settings.imageModel;
-    if (!model || model === IMAGE_MODEL_SD || model === IMAGE_MODEL_HD) {
-        model = isHD ? IMAGE_MODEL_HD : IMAGE_MODEL_SD;
+    const ai = new GoogleGenAI({ apiKey: settings.imageApiKey || getEnvKey() });
+    let model = settings.imageModel || IMAGE_MODEL_SD;
+
+    // --- CASE A: IMAGEN MODELS ---
+    if (model.toLowerCase().startsWith("imagen")) {
+        const response = await ai.models.generateImages({
+            model: model,
+            prompt: finalPrompt,
+            config: {
+                numberOfImages: 1,
+                aspectRatio: aspectRatio,
+                outputMimeType: "image/jpeg"
+            }
+        });
+        
+        const b64 = response.generatedImages?.[0]?.image?.imageBytes;
+        if (b64) return `data:image/jpeg;base64,${b64}`;
+        throw new Error("No image data found in Imagen response");
     }
 
+    // --- CASE B: GEMINI MODELS ---
     const imageConfig: any = {
-      aspectRatio: "16:9",
+      aspectRatio: aspectRatio,
     };
 
-    // Only apply imageSize for the Pro model or if user explicitly wants HD
-    if (isHD || model.includes("pro")) {
+    if (model.includes("pro")) {
       imageConfig.imageSize = "2K";
     }
 
@@ -307,19 +335,33 @@ export const generateConceptImage = async (
     if (!candidates || candidates.length === 0) throw new Error("No candidates returned");
 
     const parts = candidates[0].content.parts;
+    
+    // Iterate parts to find inlineData. 
+    // If we find text instead, capture it to report as error.
+    let textResponse = "";
     for (const part of parts) {
       if (part.inlineData) {
         return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
       }
+      if (part.text) {
+        textResponse += part.text;
+      }
     }
-    throw new Error("No image data found in response");
+    
+    // If loop finishes without returning, we failed to get an image.
+    if (textResponse) {
+        // The model likely refused to generate an image and explained why.
+        throw new Error(`Model returned text instead of image (Safety/Policy): "${textResponse.substring(0, 100)}..."`);
+    }
+
+    throw new Error("No image data found in Gemini response");
 
   } catch (error: any) {
     if (isRetryableError(error)) {
       const backoff = Math.min(Math.pow(2, retryCount) * 5000, 60000);
       console.warn(`Image generation rate limited. Waiting ${backoff}ms...`, error);
       await new Promise(resolve => setTimeout(resolve, backoff));
-      return generateConceptImage(basePrompt, mode, settings, isHD, retryCount + 1);
+      return generateConceptImage(basePrompt, mode, settings, retryCount + 1);
     }
     console.error("Image generation failed:", error);
     throw error;
@@ -331,26 +373,29 @@ const SETTINGS_KEY = 'philo_flow_settings_v2';
 
 export const saveSettings = (settings: AISettings) => {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-    // Backwards compatibility for single key
-    if (settings.textProvider === 'gemini' && settings.textApiKey) {
-        process.env.API_KEY = settings.textApiKey;
-    }
 };
 
 export const loadSettings = (): AISettings => {
     const saved = localStorage.getItem(SETTINGS_KEY);
     if (saved) {
         try {
-            return JSON.parse(saved);
+            const parsed = JSON.parse(saved);
+            if (!parsed.generationMode) parsed.generationMode = 'auto';
+            if (!parsed.directTemplate) parsed.directTemplate = DEFAULT_DIRECT_TEMPLATE;
+            if (!parsed.aspectRatio) parsed.aspectRatio = "3:4"; 
+            return parsed;
         } catch (e) { console.error("Failed to parse settings", e); }
     }
     // Default
     return {
         textProvider: 'gemini',
         textModel: TEXT_MODEL,
-        textApiKey: process.env.API_KEY || '',
+        textApiKey: getEnvKey(),
         imageProvider: 'gemini',
         imageModel: IMAGE_MODEL_SD,
-        imageApiKey: process.env.API_KEY || ''
+        imageApiKey: getEnvKey(),
+        generationMode: 'auto',
+        directTemplate: DEFAULT_DIRECT_TEMPLATE,
+        aspectRatio: "3:4"
     };
 };
